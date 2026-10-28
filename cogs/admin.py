@@ -319,6 +319,11 @@ class ClanModuleToggleView(AdminBaseView):
 
 
 class OrganizationPreviewView(AdminBaseView):
+    def __init__(self, cog: "Admin", guild_id: int):
+        # A prévia faz consultas ao banco e inventaria canais/cargos; dá mais tempo para
+        # o administrador concluir o fluxo, embora seja necessário reabrir /adm após expirar.
+        super().__init__(cog, guild_id, timeout=900)
+
     @discord.ui.button(label="Aplicar estrutura e cargos", style=discord.ButtonStyle.success, emoji="🧰", row=0)
     async def apply_plan(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=(
@@ -333,21 +338,60 @@ class OrganizationPreviewView(AdminBaseView):
     async def preview_cleanup(self, interaction: discord.Interaction, button: discord.ui.Button):
         # Exclusão em massa afeta o histórico e os cargos de todos os membros; somente o dono
         # do servidor pode iniciar esse fluxo irreversível.
-        if interaction.guild is None or interaction.user.id != interaction.guild.owner_id:
+        if interaction.guild is None:
+            return await interaction.response.send_message(
+                "Esta ação só pode ser usada dentro de um servidor Discord.", ephemeral=True,
+            )
+        if interaction.user.id != interaction.guild.owner_id:
+            log.warning(
+                "Usuário %s tentou abrir a prévia de limpeza no servidor %s sem ser o dono.",
+                interaction.user.id, interaction.guild.id,
+            )
             return await interaction.response.send_message(
                 "Por segurança, somente o dono do servidor pode iniciar a limpeza destrutiva.", ephemeral=True,
             )
-        plan = await self.cog.build_cleanup_plan(interaction.guild)
-        embed = self.cog.cleanup_preview_embed(interaction.guild, plan)
-        view = None
-        if not plan["blockers"]:
-            view = CleanupPreviewView(self.cog, self.guild_id, plan["signature"], bool(
-                plan["channels"] or plan["categories"] or plan["roles"]
-            ))
-        else:
-            # Mantém o caminho de volta à aplicação normal se o plano ainda não estiver pronto.
-            view = OrganizationPreviewView(self.cog, self.guild_id)
-        await interaction.response.edit_message(content=None, embed=embed, view=view)
+
+        # A montagem da prévia faz várias consultas ao banco e percorre canais/cargos.
+        # Reconheça a interação imediatamente para evitar que o Discord a encerre após ~3 s.
+        try:
+            await interaction.response.defer()
+            log.info(
+                "Gerando prévia de limpeza destrutiva no servidor %s (dono %s).",
+                interaction.guild.id, interaction.user.id,
+            )
+            plan = await self.cog.build_cleanup_plan(interaction.guild)
+            embed = self.cog.cleanup_preview_embed(interaction.guild, plan)
+            if not plan["blockers"]:
+                view = CleanupPreviewView(
+                    self.cog,
+                    self.guild_id,
+                    plan["signature"],
+                    bool(plan["channels"] or plan["categories"] or plan["roles"]),
+                )
+            else:
+                # A prévia mostra os impedimentos e mantém disponível o retorno à organização.
+                view = OrganizationPreviewView(self.cog, self.guild_id)
+            await interaction.edit_original_response(content=None, embed=embed, view=view)
+        except Exception as exc:
+            log.exception(
+                "Não foi possível gerar a prévia de limpeza no servidor %s (usuário %s).",
+                self.guild_id, interaction.user.id,
+            )
+            message = (
+                f"Não consegui gerar a prévia de limpeza ({type(exc).__name__}). "
+                "Nenhum canal, categoria ou cargo foi excluído. Reabra `/adm` e tente novamente; "
+                "se persistir, envie este erro à equipe técnica."
+            )
+            try:
+                if interaction.response.is_done():
+                    await interaction.edit_original_response(content=message, embed=None, view=self)
+                else:
+                    await interaction.response.send_message(message, ephemeral=True)
+            except discord.HTTPException:
+                try:
+                    await interaction.followup.send(message, ephemeral=True)
+                except discord.HTTPException:
+                    log.exception("Falha ao enviar mensagem de erro da prévia de limpeza no servidor %s", self.guild_id)
 
 
 class ConfirmOrganizationView(AdminBaseView):
