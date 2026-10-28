@@ -535,8 +535,10 @@ class BuscaModal(discord.ui.Modal, title="Buscar jogo"):
             )
         else:
             emb, file = v.render()
+            # `render()` pode devolver file=None quando não há capas ou a grade
+            # não pôde ser criada. `send_kwargs` omite o anexo nesses casos.
             await interaction.response.send_message(
-                embed=emb, file=file, view=v, ephemeral=True
+                ephemeral=True, **send_kwargs(emb, file, v)
             )
 
 
@@ -940,7 +942,11 @@ class MainView(discord.ui.View):
     async def ver(self, interaction: discord.Interaction, button: discord.ui.Button):
         v = CatalogView()
         emb, file = v.render()
-        await interaction.response.send_message(embed=emb, file=file, view=v, ephemeral=True)
+        # Não passe file=None: discord.py tenta serializar o anexo e lança
+        # AttributeError em interações do painel principal.
+        await interaction.response.send_message(
+            ephemeral=True, **send_kwargs(emb, file, v)
+        )
 
     @discord.ui.button(label="Buscar jogo", emoji="🔎", style=discord.ButtonStyle.secondary, custom_id="catalogo:buscar", row=2)
     async def buscar(self, interaction: discord.Interaction, button: discord.ui.Button):
