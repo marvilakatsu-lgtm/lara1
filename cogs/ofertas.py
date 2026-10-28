@@ -1,3 +1,12 @@
+"""Monitoramento unificado de ofertas para o Quase Pro.
+
+Integra múltiplas fontes (Steam, GamerPower, Epic Games Store, GOG) através da
+arquitetura definida em offers_sources.py. Mantém compatibilidade com o banco
+SQLite legado (sent_items / sent_items_by_guild) e com as configurações por
+servidor já existentes.
+"""
+from __future__ import annotations
+
 import asyncio
 import logging
 import sqlite3
@@ -10,31 +19,47 @@ from discord import app_commands
 from discord.ext import commands, tasks
 
 from config import (
-    GAMES_CHANNEL_ID, PROMOS_CHANNEL_ID, OFFERS_CHECK_MINUTES, MAX_OFFERS_PER_CHECK,
-    MIN_PROMO_DISCOUNT, SEED_OFFERS_ON_FIRST_RUN, SENT_DB_PATH,
+    OFFERS_CHECK_MINUTES,
+    MAX_OFFERS_PER_CHECK,
+    MIN_PROMO_DISCOUNT,
+    SEED_OFFERS_ON_FIRST_RUN,
+    SENT_DB_PATH,
 )
-from utils import get_text_channel, erro_comando
+from offers_sources import ALL_SOURCES, SOURCE_NAMES, Offer, fetch_all_offers
+from settings_store import get_setting
+from utils import erro_comando, get_text_channel
 
-log = logging.getLogger("ofertas")
+log = logging.getLogger("quasepro.ofertas")
 
 
-# ---------------------------------------------------------------- banco local
+# ---------------------------------------------------------------------------
+# Banco SQLite local (compatível com histórico legado)
+# ---------------------------------------------------------------------------
 
 def init_offers_db() -> None:
     with sqlite3.connect(SENT_DB_PATH) as conn:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sent_items (
                 item_key TEXT PRIMARY KEY,
-                sent_at TEXT NOT NULL
+                sent_at  TEXT NOT NULL
             )
         """)
-        # Nova tabela por servidor. sent_items é mantida para respeitar o histórico antigo.
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sent_items_by_guild (
                 guild_id INTEGER NOT NULL,
                 item_key TEXT NOT NULL,
-                sent_at TEXT NOT NULL,
+                sent_at  TEXT NOT NULL,
                 PRIMARY KEY (guild_id, item_key)
+            )
+        """)
+        # Tabela de diagnóstico por fonte
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS offers_source_status (
+                source_name TEXT PRIMARY KEY,
+                last_check  TEXT,
+                last_success TEXT,
+                last_error  TEXT,
+                offers_found INTEGER NOT NULL DEFAULT 0
             )
         """)
         conn.commit()
@@ -42,171 +67,131 @@ def init_offers_db() -> None:
 
 def offer_already_sent(item_key: str, guild_id: int | None = None) -> bool:
     with sqlite3.connect(SENT_DB_PATH) as conn:
-        # Chaves gravadas pela versão antiga indicam que a oferta já era conhecida antes da migração.
-        legacy = conn.execute("SELECT 1 FROM sent_items WHERE item_key = ?", (item_key,)).fetchone()
+        legacy = conn.execute(
+            "SELECT 1 FROM sent_items WHERE item_key = ?", (item_key,)
+        ).fetchone()
         if legacy:
             return True
         if guild_id is None:
             return False
-        return conn.execute("SELECT 1 FROM sent_items_by_guild WHERE guild_id=? AND item_key=?", (guild_id, item_key)).fetchone() is not None
+        return conn.execute(
+            "SELECT 1 FROM sent_items_by_guild WHERE guild_id=? AND item_key=?",
+            (guild_id, item_key),
+        ).fetchone() is not None
 
 
 def mark_offer_sent(item_key: str, guild_id: int | None = None) -> None:
     with sqlite3.connect(SENT_DB_PATH) as conn:
         stamp = datetime.now(timezone.utc).isoformat()
         if guild_id is None:
-            conn.execute("INSERT OR IGNORE INTO sent_items(item_key, sent_at) VALUES (?, ?)", (item_key, stamp))
+            conn.execute(
+                "INSERT OR IGNORE INTO sent_items(item_key, sent_at) VALUES (?, ?)",
+                (item_key, stamp),
+            )
         else:
-            conn.execute("INSERT OR IGNORE INTO sent_items_by_guild(guild_id,item_key,sent_at) VALUES(?,?,?)", (guild_id, item_key, stamp))
+            conn.execute(
+                "INSERT OR IGNORE INTO sent_items_by_guild(guild_id,item_key,sent_at) VALUES(?,?,?)",
+                (guild_id, item_key, stamp),
+            )
         conn.commit()
 
 
 def count_sent_items() -> int:
     with sqlite3.connect(SENT_DB_PATH) as conn:
-        row = conn.execute("SELECT (SELECT COUNT(*) FROM sent_items) + (SELECT COUNT(*) FROM sent_items_by_guild)").fetchone()
+        row = conn.execute(
+            "SELECT (SELECT COUNT(*) FROM sent_items) + (SELECT COUNT(*) FROM sent_items_by_guild)"
+        ).fetchone()
         return int(row[0] or 0)
 
 
-# ------------------------------------------------------------------- ofertas
-
-def money_brl(cents: Any) -> str | None:
-    try:
-        return f"R$ {int(cents) / 100:,.2f}".replace(",", "X").replace(".", ",").replace("X", ".")
-    except (TypeError, ValueError):
-        return None
-
-
-async def fetch_gamerpower(session: aiohttp.ClientSession) -> list[dict[str, Any]]:
-    try:
-        async with session.get(
-            "https://www.gamerpower.com/api/giveaways",
-            params={"type": "game"},
-            timeout=aiohttp.ClientTimeout(total=20),
-        ) as resp:
-            if resp.status == 429:
-                log.warning("GamerPower limitou requisições.")
-                return []
-            resp.raise_for_status()
-            data = await resp.json(content_type=None)
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-        log.exception("Falha consultando GamerPower.")
-        return []
-    if not isinstance(data, list):
-        return []
-    items = []
-    for g in data:
-        title = g.get("title")
-        url = g.get("open_giveaway_url") or g.get("gamerpower_url")
-        if not title or not url:
-            continue
-        end_date = str(g.get("end_date") or "").strip()
-        if not end_date or end_date.upper() == "N/A":
-            end_date = "Sem data informada"
-        items.append({
-            "key": f"gamerpower:{g.get('id') or title}",
-            "title": title,
-            "url": url,
-            "image": g.get("thumbnail"),
-            "description": (g.get("description") or "Jogo gratuito por tempo limitado.").strip(),
-            "category": "JOGO GRÁTIS",
-            "platform": g.get("platforms", "Plataforma não informada"),
-            "price": "Grátis",
-            "source": "GamerPower",
-            "end_date": end_date,
-            "kind": "game",
-        })
-    return items
+def update_source_status(source_name: str, *, success: bool, offers_found: int = 0, error: str | None = None) -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with sqlite3.connect(SENT_DB_PATH) as conn:
+        if success:
+            conn.execute(
+                "INSERT INTO offers_source_status(source_name,last_check,last_success,last_error,offers_found) "
+                "VALUES(?,?,?,?,?) ON CONFLICT(source_name) DO UPDATE SET "
+                "last_check=excluded.last_check, last_success=excluded.last_success, "
+                "last_error=NULL, offers_found=excluded.offers_found",
+                (source_name, now, now, offers_found),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO offers_source_status(source_name,last_check,last_error,offers_found) "
+                "VALUES(?,?,?,?) ON CONFLICT(source_name) DO UPDATE SET "
+                "last_check=excluded.last_check, last_error=excluded.last_error, "
+                "offers_found=excluded.offers_found",
+                (source_name, now, error or "Erro desconhecido", offers_found),
+            )
+        conn.commit()
 
 
-async def fetch_steam_offers(session: aiohttp.ClientSession) -> list[dict[str, Any]]:
-    try:
-        async with session.get(
-            "https://store.steampowered.com/api/featuredcategories/",
-            params={"cc": "br", "l": "brazilian"},
-            timeout=aiohttp.ClientTimeout(total=20),
-        ) as resp:
-            if resp.status == 429:
-                log.warning("Steam Store limitou requisições.")
-                return []
-            resp.raise_for_status()
-            data = await resp.json(content_type=None)
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError):
-        log.exception("Falha consultando Steam Store.")
-        return []
-    if not isinstance(data, dict):
-        return []
-    items = []
-    for section_name in ("freegames", "specials"):
-        section = data.get(section_name) or {}
-        for game in section.get("items", []) if isinstance(section, dict) else []:
-            app_id = game.get("id")
-            title = game.get("name")
-            if not app_id or not title:
-                continue
-            discount = int(game.get("discount_percent") or 0)
-            final_cents = game.get("final_price")
-            initial_cents = game.get("original_price")
-            actually_free = bool(game.get("is_free")) or final_cents == 0
-            if not actually_free and (final_cents is None or discount <= 0):
-                continue
-            final_price = "Grátis" if actually_free else money_brl(final_cents)
-            original_price = None if actually_free else money_brl(initial_cents)
-            if not final_price:
-                continue
-            items.append({
-                "key": f"steam:{app_id}:{discount}:{final_cents}",
-                "title": title,
-                "url": f"https://store.steampowered.com/app/{app_id}/?cc=br",
-                "image": game.get("header_image"),
-                "description": "Oferta regional da Steam. Confira a página da loja para condições e validade.",
-                "category": "JOGO GRÁTIS NA STEAM" if actually_free else f"PROMOÇÃO STEAM • {discount}% OFF",
-                "platform": "Steam",
-                "price": final_price,
-                "original_price": original_price,
-                "discount": discount,
-                "source": "Steam Store Brasil",
-                "end_date": "Consulte a página da loja",
-                "kind": "game" if actually_free else "promo",
-            })
-    return items
+def get_source_statuses() -> list[dict[str, Any]]:
+    with sqlite3.connect(SENT_DB_PATH) as conn:
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT source_name, last_check, last_success, last_error, offers_found "
+            "FROM offers_source_status ORDER BY source_name"
+        ).fetchall()
+        return [dict(r) for r in rows]
 
 
-def make_offer_embed(item: dict[str, Any]) -> discord.Embed:
-    """Monta um único embed por oferta (evita previews duplicados de link/imagem)."""
-    titulo = str(item["title"])[:250]
-    descricao = str(item.get("description") or "Confira os detalhes na página da oferta.")[:950]
-    tipo = str(item.get("category", "Oferta"))[:120]
-    plataforma = str(item.get("platform", "Não informada"))[:120]
-    preco = str(item.get("price", "Consulte a loja"))
-    original = item.get("original_price")
-    if original and original != preco:
-        preco = f"~~{original}~~ → **{preco}**"
-    validade = str(item.get("end_date") or "Consulte a loja")[:120]
-    fonte = str(item.get("source", "Fonte não informada"))[:100]
-    url = str(item.get("url", ""))
-    imagem = item.get("image")
+# ---------------------------------------------------------------------------
+# Embeds
+# ---------------------------------------------------------------------------
 
-    cor = discord.Color.green() if item.get("kind") == "game" else discord.Color.orange()
-    embed = discord.Embed(title=titulo, url=url or None, description=descricao, color=cor)
-    embed.add_field(name="Tipo", value=tipo, inline=True)
-    embed.add_field(name="Plataforma", value=plataforma, inline=True)
-    embed.add_field(name="Preço", value=preco, inline=True)
-    embed.add_field(name="Validade", value=validade, inline=False)
-    embed.set_footer(text=f"Fonte: {fonte}")
-    if imagem and str(imagem).startswith("https://"):
-        embed.set_image(url=str(imagem))
+def make_offer_embed(offer: Offer) -> discord.Embed:
+    """Monta embed profissional mantendo a identidade do Quase Pro."""
+    titulo = str(offer.title)[:256]
+    descricao = str(offer.description or "Confira os detalhes na página da oferta.")[:1024]
+
+    is_free = offer.kind == "free"
+    cor = discord.Color.green() if is_free else discord.Color.orange()
+
+    embed = discord.Embed(title=titulo, url=offer.url or None, description=descricao, color=cor)
+
+    # Preço
+    preco = offer.price
+    if offer.original_price and offer.original_price != preco:
+        preco = f"~~{offer.original_price}~~ → **{preco}**"
+    embed.add_field(name="Preço", value=preco or "Consulte a loja", inline=True)
+
+    # Tipo
+    tipo_label = "🎁 Jogo Grátis" if is_free else f"🏷️ Promoção ({offer.discount}% OFF)"
+    embed.add_field(name="Tipo", value=tipo_label, inline=True)
+
+    # Plataforma
+    plataforma = offer.platform or offer.activation_platform or "Não informada"
+    embed.add_field(name="Plataforma", value=str(plataforma)[:120], inline=True)
+
+    # Validade
+    validade = offer.end_date or "Consulte a loja"
+    embed.add_field(name="Validade", value=str(validade)[:120], inline=False)
+
+    # Loja
+    embed.set_footer(text=f"Fonte: {offer.source}")
+
+    # Imagem
+    if offer.image and str(offer.image).startswith("https://"):
+        embed.set_image(url=str(offer.image))
+
     return embed
 
 
-class Ofertas(commands.Cog):
-    """Jogos grátis (GamerPower/Steam) e promoções da Steam."""
+# ---------------------------------------------------------------------------
+# Cog principal
+# ---------------------------------------------------------------------------
 
-    def __init__(self, bot):
+class Ofertas(commands.Cog):
+    """Monitoramento unificado de jogos grátis e promoções multi-fonte."""
+
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.http_session: aiohttp.ClientSession | None = None
+        self._first_run_done = False
 
     async def cog_load(self):
-        self.http_session = aiohttp.ClientSession(headers={"User-Agent": "ColizeuBot/1.0"})
+        self.http_session = aiohttp.ClientSession(headers={"User-Agent": "QuaseProBot/2.0"})
         init_offers_db()
         self.offers_loop.start()
 
@@ -219,58 +204,79 @@ class Ofertas(commands.Cog):
     async def offers_loop(self):
         if not self.http_session:
             return
-        try:
-            offers = await asyncio.gather(
-                fetch_gamerpower(self.http_session),
-                fetch_steam_offers(self.http_session),
-                return_exceptions=True,
-            )
-            items = []
-            for result in offers:
-                if isinstance(result, list):
-                    items.extend(result)
-                elif isinstance(result, Exception):
-                    log.error("Erro consultando uma fonte de ofertas: %r", result)
 
-            unique = {item["key"]: item for item in items}
+        try:
+            # Coleta habilitada por servidor pode ser expandida futuramente;
+            # por ora usa o conjunto global de fontes padrão.
+            enabled = {s.name for s in ALL_SOURCES if s.enabled_by_default}
+            all_offers, errors = await fetch_all_offers(self.http_session, enabled_sources=enabled)
+
+            # Atualiza diagnóstico por fonte
+            source_counts: dict[str, int] = {}
+            for offer in all_offers:
+                source_counts[offer.source] = source_counts.get(offer.source, 0) + 1
+            for name in enabled:
+                update_source_status(
+                    name,
+                    success=name not in errors,
+                    offers_found=source_counts.get(name, 0),
+                    error=errors.get(name),
+                )
+
+            # Deduplicação por chave estável
+            unique: dict[str, Offer] = {}
+            for offer in all_offers:
+                if offer.key not in unique:
+                    unique[offer.key] = offer
 
             guilds = list(self.bot.guilds)
-            # Primeira execução: registra o estado existente por servidor sem inundar os canais.
-            if SEED_OFFERS_ON_FIRST_RUN and unique and count_sent_items() == 0:
+
+            # Seed inicial: registra estado atual sem inundar canais
+            if SEED_OFFERS_ON_FIRST_RUN and not self._first_run_done and unique and count_sent_items() == 0:
                 for guild in guilds:
-                    for item in unique.values():
-                        mark_offer_sent(item["key"], guild.id)
-                log.info("Primeira execução: %s ofertas registradas em %s servidor(es), sem postagem.", len(unique), len(guilds))
+                    for key in unique:
+                        mark_offer_sent(key, guild.id)
+                log.info(
+                    "Primeira execução: %s ofertas registradas em %s servidor(es), sem postagem.",
+                    len(unique), len(guilds),
+                )
+                self._first_run_done = True
                 return
 
-            from settings_store import get_setting
-            sent_by_guild = {guild.id: 0 for guild in guilds}
-            for item in unique.values():
-                if offer_already_sent(item["key"]):
+            self._first_run_done = True
+            sent_by_guild: dict[int, int] = {g.id: 0 for g in guilds}
+
+            for offer in unique.values():
+                # Filtro de desconto mínimo para promoções
+                if offer.kind == "promo" and offer.discount < MIN_PROMO_DISCOUNT:
                     continue
-                if item["kind"] == "promo" and item.get("discount", 0) < MIN_PROMO_DISCOUNT:
-                    continue
+
                 for guild in guilds:
                     if sent_by_guild[guild.id] >= MAX_OFFERS_PER_CHECK:
                         continue
-                    if offer_already_sent(item["key"], guild.id):
+                    if offer_already_sent(offer.key, guild.id):
                         continue
-                    setting_key = "games_channel_id" if item["kind"] == "game" else "promos_channel_id"
+
+                    setting_key = "games_channel_id" if offer.kind == "free" else "promos_channel_id"
                     target_id = await get_setting(self.bot, guild.id, setting_key, 0)
                     if not target_id:
                         continue
+
                     channel = await get_text_channel(self.bot, int(target_id))
                     if channel is None or getattr(channel, "guild", None) is None or channel.guild.id != guild.id:
                         continue
+
                     try:
-                        await channel.send(embed=make_offer_embed(item))
-                        mark_offer_sent(item["key"], guild.id)
+                        await channel.send(embed=make_offer_embed(offer))
+                        mark_offer_sent(offer.key, guild.id)
                         sent_by_guild[guild.id] += 1
                         await asyncio.sleep(1.2)
                     except discord.HTTPException:
-                        log.exception("Falha publicando oferta %s em %s", item.get("title"), guild.id)
-            sent_this_cycle = sum(sent_by_guild.values())
-            log.info("Ofertas verificadas: %s; novas publicadas: %s", len(unique), sent_this_cycle)
+                        log.exception("Falha publicando oferta %s em %s", offer.title, guild.id)
+
+            sent_total = sum(sent_by_guild.values())
+            log.info("Ofertas verificadas: %s; novas publicadas: %s", len(unique), sent_total)
+
         except Exception:
             log.exception("Erro na rotina de ofertas.")
 
@@ -278,25 +284,69 @@ class Ofertas(commands.Cog):
     async def before_offers_loop(self):
         await self.bot.wait_until_ready()
 
-    @app_commands.command(name="status_ofertas", description="Mostra se o monitoramento de ofertas está configurado e funcionando.")
+    # -------------------------------------------------------------------
+    # Comando de diagnóstico
+    # -------------------------------------------------------------------
+
+    @app_commands.command(name="status_ofertas", description="Mostra o estado do monitoramento de ofertas e suas fontes.")
     @app_commands.default_permissions(manage_guild=True)
     @app_commands.checks.has_permissions(manage_guild=True)
     async def status_ofertas(self, interaction: discord.Interaction):
-        from settings_store import get_setting
         games_id = await get_setting(self.bot, interaction.guild.id, "games_channel_id", 0)
         promos_id = await get_setting(self.bot, interaction.guild.id, "promos_channel_id", 0)
-        games = f"<#{games_id}>" if games_id else "Não configurado"
-        promos = f"<#{promos_id}>" if promos_id else "Não configurado"
-        await interaction.response.send_message(
-            f"**Jogos grátis:** {games}\n**Promoções:** {promos}\n"
-            f"**Verificação:** a cada {OFFERS_CHECK_MINUTES} minutos.\n"
-            f"**Desconto mínimo para promoções:** {MIN_PROMO_DISCOUNT}%",
-            ephemeral=True,
-        )
+        games = f"<#{games_id}>" if games_id else "❌ Não configurado"
+        promos = f"<#{promos_id}>" if promos_id else "❌ Não configurado"
 
-    async def cog_app_command_error(self, interaction, error):
+        statuses = get_source_statuses()
+        enabled_names = {s.name for s in ALL_SOURCES if s.enabled_by_default}
+
+        linhas_fontes: list[str] = []
+        for name in sorted(enabled_names):
+            info = next((s for s in statuses if s["source_name"] == name), None)
+            if info:
+                status_icon = "✅" if info.get("last_success") and not info.get("last_error") else "⚠️"
+                ultima = info.get("last_check") or "Nunca"
+                if isinstance(ultima, str) and "T" in ultima:
+                    try:
+                        dt = datetime.fromisoformat(ultima.replace("Z", "+00:00"))
+                        ultima = dt.strftime("%d/%m %H:%M UTC")
+                    except (ValueError, TypeError):
+                        pass
+                qtd = info.get("offers_found", 0)
+                err = info.get("last_error")
+                linha = f"{status_icon} **{name}** — {qtd} ofertas — última: {ultima}"
+                if err:
+                    linha += f"\n└ ⚠️ `{str(err)[:80]}`"
+                linhas_fontes.append(linha)
+            else:
+                linhas_fontes.append(f"⏳ **{name}** — aguardando primeira verificação")
+
+        fontes_text = "\n".join(linhas_fontes) if linhas_fontes else "Nenhuma fonte registrada ainda."
+
+        embed = discord.Embed(
+            title="📊 Status do Monitoramento de Ofertas",
+            color=discord.Color.blurple(),
+        )
+        embed.add_field(name="Canal Jogos Grátis", value=games, inline=True)
+        embed.add_field(name="Canal Promoções", value=promos, inline=True)
+        embed.add_field(
+            name="Configuração",
+            value=(
+                f"Intervalo: **{OFFERS_CHECK_MINUTES} min**\n"
+                f"Desconto mín.: **{MIN_PROMO_DISCOUNT}%**\n"
+                f"Máx./ciclo: **{MAX_OFFERS_PER_CHECK}**\n"
+                f"Histórico: **{count_sent_items()}** registros"
+            ),
+            inline=False,
+        )
+        embed.add_field(name="Fontes", value=fontes_text, inline=False)
+        embed.set_footer(text="Quase Pro • Monitoramento Unificado de Ofertas")
+
+        await interaction.response.send_message(embed=embed, ephemeral=True)
+
+    async def cog_app_command_error(self, interaction: discord.Interaction, error):
         await erro_comando(interaction, error)
 
 
-async def setup(bot):
+async def setup(bot: commands.Bot):
     await bot.add_cog(Ofertas(bot))
