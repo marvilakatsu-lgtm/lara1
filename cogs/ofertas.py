@@ -113,7 +113,7 @@ def update_source_status(source_name: str, *, success: bool, offers_found: int =
                 "VALUES(?,?,?,?,?) ON CONFLICT(source_name) DO UPDATE SET "
                 "last_check=excluded.last_check, last_success=excluded.last_success, "
                 "last_error=NULL, offers_found=excluded.offers_found",
-                (source_name, now, now, offers_found),
+                (source_name, now, now, None, offers_found),
             )
         else:
             conn.execute(
