@@ -15,6 +15,7 @@ ORGANIZATION = [
         [
             ("📜・boas-vindas", "text", None, ("boas-vindas", "bem-vindos"), None),
             ("📕・regras-do-reino", "text", None, ("regras", "regras-do-servidor"), None),
+            ("✅・verificação", "text", None, ("verificacao", "verificação", "verificacao-do-servidor"), None),
             ("📢・anúncios-importantes", "text", "announcements_channel_id", ("anuncios", "anuncios-importantes"), None),
             ("🎭・escolha-seus-cargos", "text", None, ("selecao-de-cargos", "escolha-seus-cargos"), None),
             ("🧭・guia-do-servidor", "text", None, ("guia-do-servidor",), None),
@@ -124,11 +125,32 @@ ORGANIZATION = [
     ),
 ]
 
+# A categoria de entrada é a única área pública antes da verificação. Todas as
+# demais categorias públicas exigem o cargo verificado; a equipe usa ACL própria.
+ENTRY_CATEGORY_KEY = "category_start_id"
+STAFF_CATEGORY_KEY = "category_team_id"
+VERIFICATION_CHANNEL_NAME = "✅・verificação"
+
+
+def category_access_mode(category_key: str) -> str:
+    """Retorna 'entry', 'staff' ou 'verified' para a política de acesso da categoria."""
+    if category_key == ENTRY_CATEGORY_KEY:
+        return "entry"
+    if category_key == STAFF_CATEGORY_KEY:
+        return "staff"
+    return "verified"
+
+
 # Alias explicitamente listados para migrar nomes antigos sem excluir mensagens.
 CATEGORY_KEYS = {key: name for name, key, _aliases, _channels in ORGANIZATION}
 
-# Hierarquia visual e operacional: staff > patentes > clãs > comunidade > interesses > etiquetas técnicas.
+# Agrupamento visual. A ordem dentro de cada grupo é definida explicitamente abaixo;
+# nunca derive a hierarquia da ordem de criação dos cargos.
 ROLE_GROUP_ORDER = ("staff", "rank", "clan", "community", "interest", "technical")
+STAFF_ROLE_ORDER = ("founder", "administrator", "moderator", "support", "developer")
+CLAN_ROLE_ORDER = ("clan_leader", "clan_officer", "clan_member")
+# Status de criador/aliado acima dos cargos de comunidade comum; Membro acima de Recém-chegado.
+COMMUNITY_ROLE_ORDER = ("creator", "ally", "member", "newcomer")
 
 # Role definitions use distinct hex colors across all managed roles. The three
 # permission profiles are applied only after an administrator confirms /adm.
@@ -174,10 +196,10 @@ ROLE_DEFINITIONS.extend([
     {"key": "clan_leader", "name": "👑・Líder de Clã", "color": 0xAF7AC5, "group": "clan", "aliases": ("Líder de Clã", "Líder de Clan"), "permissions": "none"},
     {"key": "clan_officer", "name": "🗡️・Oficial de Clã", "color": 0x4A235A, "group": "clan", "aliases": ("Oficial de Clã", "Oficial de Clan"), "permissions": "none"},
     {"key": "clan_member", "name": "⚔️・Membro de Clã", "color": 0x0E6251, "group": "clan", "aliases": ("Membro de Clã", "Membro de Clan"), "permissions": "none"},
-    {"key": "newcomer", "name": "🌱・Recém-chegado", "color": 0x82E0AA, "group": "community", "aliases": ("Recém-chegado", "Recem-chegado"), "permissions": "none"},
-    {"key": "member", "name": "🟢・Membro", "color": 0x27AE60, "group": "community", "aliases": ("Membro",), "permissions": "none"},
     {"key": "creator", "name": "📺・Criador de Conteúdo", "color": 0x5DADE2, "group": "community", "aliases": ("Criador de Conteúdo", "Criador de Conteudo"), "permissions": "none"},
     {"key": "ally", "name": "🤝・Aliado", "color": 0xB7950B, "group": "community", "aliases": ("Aliado",), "permissions": "none"},
+    {"key": "member", "name": "🟢・Membro", "color": 0x27AE60, "group": "community", "aliases": ("Membro",), "permissions": "none"},
+    {"key": "newcomer", "name": "🌱・Recém-chegado", "color": 0x82E0AA, "group": "community", "aliases": ("Recém-chegado", "Recem-chegado"), "permissions": "none"},
     {"key": "interest_elden_ring", "name": "🎮・Elden Ring", "color": 0x1F618D, "group": "interest", "aliases": ("Elden Ring",), "permissions": "none"},
     {"key": "interest_dark_souls", "name": "🔥・Dark Souls", "color": 0x884EA0, "group": "interest", "aliases": ("Dark Souls",), "permissions": "none"},
     {"key": "interest_bloodborne", "name": "🩸・Bloodborne", "color": 0x117864, "group": "interest", "aliases": ("Bloodborne",), "permissions": "none"},
@@ -191,6 +213,44 @@ ROLE_DEFINITIONS.extend([
     {"key": "bot_catalog", "name": "📚・Bot Catálogo", "color": 0xF5B7B1, "group": "technical", "aliases": ("Bot Catálogo", "Bot Catalogo"), "permissions": "none"},
     {"key": "bot_organizer", "name": "⚙️・Bot Organizador", "color": 0xFAD7A0, "group": "technical", "aliases": ("Bot Organizador",), "permissions": "none"},
 ])
+
+
+
+def role_hierarchy_keys(include_staff: bool = True) -> list[str]:
+    """Cargo keys em ordem visual de cima para baixo (maior para menor hierarquia).
+
+    Discord não permite que o bot mova cargos acima do próprio maior cargo. Por isso,
+    ``include_staff=False`` é a lista que a aplicação pode ordenar automaticamente:
+    todos os cargos funcionais abaixo do cargo real do bot. Cargos de equipe devem
+    ficar manualmente acima do cargo real do bot.
+    """
+    by_key = {item["key"]: item for item in ROLE_DEFINITIONS}
+    keys: list[str] = []
+    if include_staff:
+        keys.extend(key for key in STAFF_ROLE_ORDER if key in by_key)
+    ranks = sorted(
+        (item for item in ROLE_DEFINITIONS if item.get("group") == "rank"),
+        key=lambda item: int(item.get("level_min", 0)),
+        reverse=True,
+    )
+    keys.extend(item["key"] for item in ranks)
+    keys.extend(key for key in CLAN_ROLE_ORDER if key in by_key)
+    keys.extend(key for key in COMMUNITY_ROLE_ORDER if key in by_key)
+    keys.extend(item["key"] for item in ROLE_DEFINITIONS if item.get("group") == "interest")
+    keys.extend(item["key"] for item in ROLE_DEFINITIONS if item.get("group") == "technical")
+    # Keep forward compatibility if a new role group/key is added later without
+    # accidentally putting staff roles back into the bot-manageable lower stack.
+    keys.extend(
+        item["key"] for item in ROLE_DEFINITIONS
+        if item["key"] not in keys and (include_staff or item.get("group") != "staff")
+    )
+    return keys
+
+
+def managed_role_hierarchy_keys() -> list[str]:
+    """Cargos que o bot pode organizar abaixo de si; exclui explicitamente a equipe."""
+    return role_hierarchy_keys(include_staff=False)
+
 
 # Settings whose logical names are consumed by existing bot modules.
 ROLE_SETTING_KEYS = {

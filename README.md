@@ -59,7 +59,7 @@ Use `/adm` com uma conta que possua **Gerenciar Servidor**, **Administrador** ou
 O painel permite:
 
 - Associar canais de texto aos sistemas e categorias existentes por seletores nativos do Discord.
-- Associar cargos administrativos e funcionais.
+- Associar cargos administrativos e funcionais. A organização aplica perfis predefinidos aos cargos que consegue gerir; a atribuição dos cargos de equipe aos membros continua manual. O cargo Fundador possui a permissão Administrador e deve ser atribuído com cautela.
 - Escolher as categorias funcionais do servidor.
 - Pré-visualizar uma organização e aplicar o plano oficial Quase Pro: reaproveita canais por nome/aliases, renomeia e move canais para as categorias corretas preservando mensagens, cria recursos ausentes e ajusta permissões. Não exclui canais, mensagens, cargos ou dados; a aplicação pode ser parcial se o bot não tiver permissões/hierarquia suficiente.
 - Configurar o recrutamento padrão para novos clãs, publicar/atualizar o painel público e diagnosticar/reparar recursos de clãs.
@@ -89,9 +89,9 @@ A privacidade não é absoluta contra administradores do servidor ou cargos com 
 
 ## Estrutura Quase Pro — organização oficial
 
-A opção `/adm` → Organização do servidor aplica **10 categorias e 62 canais**, na ordem abaixo. Canais existentes encontrados por nome/alias são reutilizados, renomeados e movidos; o histórico da mensagem permanece porque o canal não é excluído.
+A opção `/adm` → Organização do servidor aplica **10 categorias e 63 canais**, na ordem abaixo. Canais existentes encontrados por nome/alias são reutilizados, renomeados e movidos; o histórico da mensagem permanece porque o canal não é excluído.
 
-1. `🔥・PORTÕES DO SANTUÁRIO`: `📜・boas-vindas`, `📕・regras-do-reino`, `📢・anúncios-importantes`, `🎭・escolha-seus-cargos`, `🧭・guia-do-servidor`.
+1. `🔥・PORTÕES DO SANTUÁRIO`: `📜・boas-vindas`, `📕・regras-do-reino`, `✅・verificação`, `📢・anúncios-importantes`, `🎭・escolha-seus-cargos`, `🧭・guia-do-servidor`.
 2. `🎬・QUASE PRO`: `📣・avisos-do-canal`, `🎥・novos-vídeos`, `🔴・lives-ao-vivo`, `💡・sugestões-de-vídeos`, `🗳️・votações-da-comunidade`, `🎬・bastidores-do-quase-pro`.
 3. `🏰・PRAÇA DOS MACULADOS`: `💬・bate-papo`, `👋・apresente-se`, `😂・memes-do-reino`, `📸・prints-e-clipes`, `🤝・procurando-jogadores`, `🎮・outros-jogos` (texto), `💭・sugestões-do-servidor`.
 4. `⚔️・TERRAS SOULSLIKE`: `🌳・elden-ring`, `🔥・dark-souls`, `🛡️・dark-souls-ii`, `⚔️・dark-souls-iii`, `🩸・bloodborne`, `🥷・sekiro`, `👑・demon-souls`, `🦾・lies-of-p`, `🌑・nightreign`, `🗡️・builds-e-armas`, `💀・chefes-e-estratégias`, `🏆・runs-e-desafios`, `📖・lore-e-teorias`.
@@ -102,11 +102,32 @@ A opção `/adm` → Organização do servidor aplica **10 categorias e 62 canai
 9. `🔊・FOGUEIRAS DA COMUNIDADE` (voz): `🔥・papo-livre`, `🤝・coop-souls`, `⚔️・arena-pvp`, `🎮・outros-jogos`, `🎙️・sala-de-eventos`.
 10. `🔒・BASTIDORES DA ORDEM` (privada): `💬・chat-da-equipe`, `🛡️・logs-de-moderação`, `🤖・logs-dos-bots`, `⚙️・comandos-adm`, `🎫・relatórios-de-suporte`, `📋・auditoria-de-clãs`.
 
-A aplicação publica/atualiza os painéis persistentes de boas-vindas, escolha de cargos, catálogo de jogos, catálogo/envio de mods e Salão dos Juramentos, desde que os canais existam e o bot tenha permissão para enviar mensagens.
+A aplicação publica/atualiza o painel de verificação em `✅・verificação`, o painel de escolha de cargos, os painéis do catálogo de jogos/mods e o Salão dos Juramentos, desde que os canais existam e o bot tenha permissão para enviar mensagens.
+
+### Bloqueio de acesso até a verificação
+
+A categoria `🔥・PORTÕES DO SANTUÁRIO` fica visível a todos para que novos membros possam ler regras e usar o botão em `✅・verificação`. As outras oito categorias públicas recebem `@everyone: view_channel=False` e `🟢・Membro: view_channel=True`; o bot e cargos autorizados de equipe também têm acesso explícito. A categoria `🔒・BASTIDORES DA ORDEM` mantém ACL privada de equipe. A verificação só libera as áreas restantes quando o bot consegue atribuir o cargo Membro. Antes de aplicar, confira se o cargo do bot está acima de `🟢・Membro` e se tem `Gerenciar Canais` e `Gerenciar Cargos`. Pessoas com `Administrador` no Discord podem ignorar overwrites de canal, como esperado.
 
 ## Cargos, paleta e patentes por XP
 
-A organização cria/atualiza 34 cargos gerenciados pelo projeto com **34 cores hexadecimais únicas**. Os cargos de fundador, administrador e moderador recebem apenas os perfis de permissão definidos no código; suporte, desenvolvedor, clãs, comunidade, interesses e etiquetas técnicas não recebem permissões administrativas. O cargo do bot deve estar acima dos cargos que precisa gerenciar.
+A organização cria/atualiza 34 cargos gerenciados pelo projeto com **34 cores hexadecimais únicas**. Os cargos de fundador, administrador e moderador recebem os perfis definidos no código; suporte, desenvolvedor, clãs, comunidade, interesses e etiquetas técnicas não recebem permissões administrativas.
+
+### Hierarquia correta — de cima para baixo
+
+1. `👑・Fundador`
+2. `⚙️・Administrador`
+3. `🛡️・Moderador`
+4. `🎫・Equipe de Suporte`
+5. `🔧・Desenvolvedor`
+6. **Cargo real da aplicação/bot no Discord** — fronteira da hierarquia; deve ficar abaixo da equipe e acima dos cargos que o bot administra.
+7. **Patentes, do nível mais alto ao inicial:** `🌟・Sentinela Imortal` (nível 100), `🏆・Lenda do Coliseu` (75), `🌌・Senhor das Almas` (50), `🔥・Executor Sombrio` (40), `🌑・Arauto da Ruína` (30), `🪶・Guardião das Cinzas` (20), `⚔️・Cavaleiro do Abismo` (15), `💀・Caçador de Almas` (10), `🩸・Guerreiro Caído` (5), `🪨・Cinzas Novatas` (1).
+8. Cargos de clã: `👑・Líder de Clã` > `🗡️・Oficial de Clã` > `⚔️・Membro de Clã`.
+9. Comunidade: `📺・Criador de Conteúdo` e `🤝・Aliado` > `🟢・Membro` > `🌱・Recém-chegado`.
+10. Interesses/notificações e etiquetas técnicas ficam na base.
+
+**Limite da API do Discord:** um bot não pode mover cargos para cima do seu maior cargo nem editar cargos acima dele. Na primeira aplicação, o bot padroniza os cargos e ordena automaticamente os cargos funcionais abaixo de si; você precisa mover manualmente os cinco cargos de equipe para cima do cargo real do bot, nesta ordem exata: Fundador > Administrador > Moderador > Equipe de Suporte > Desenvolvedor. Não atribua cargos privilegiados a ninguém até terminar esse passo. Execute `/adm` novamente para validar a hierarquia. A seção Diagnóstico também sinaliza cargos funcionais posicionados no lado errado do cargo do bot.
+
+A hierarquia de patentes agora é ordenada pelo nível mínimo em ordem decrescente, não pela ordem de criação. Assim, `Sentinela Imortal` fica acima das demais patentes, enquanto `Cinzas Novatas` fica abaixo delas. O XP e os requisitos existentes não são alterados.
 
 ### Paleta completa dos 34 cargos
 
@@ -117,23 +138,23 @@ A organização cria/atualiza 34 cargos gerenciados pelo projeto com **34 cores 
 | 🛡️・Moderador | staff | `#3498DB` |
 | 🎫・Equipe de Suporte | staff | `#9B59B6` |
 | 🔧・Desenvolvedor | staff | `#1ABC9C` |
-| 🪨・Cinzas Novatas | rank | `#7F8C8D` |
-| 🩸・Guerreiro Caído | rank | `#8E6E53` |
-| 💀・Caçador de Almas | rank | `#7B241C` |
-| ⚔️・Cavaleiro do Abismo | rank | `#2E4053` |
-| 🪶・Guardião das Cinzas | rank | `#566573` |
-| 🌑・Arauto da Ruína | rank | `#6C3483` |
-| 🔥・Executor Sombrio | rank | `#17202A` |
-| 🌌・Senhor das Almas | rank | `#D35400` |
-| 🏆・Lenda do Coliseu | rank | `#BA4A00` |
 | 🌟・Sentinela Imortal | rank | `#F4D03F` |
+| 🏆・Lenda do Coliseu | rank | `#BA4A00` |
+| 🌌・Senhor das Almas | rank | `#D35400` |
+| 🔥・Executor Sombrio | rank | `#17202A` |
+| 🌑・Arauto da Ruína | rank | `#6C3483` |
+| 🪶・Guardião das Cinzas | rank | `#566573` |
+| ⚔️・Cavaleiro do Abismo | rank | `#2E4053` |
+| 💀・Caçador de Almas | rank | `#7B241C` |
+| 🩸・Guerreiro Caído | rank | `#8E6E53` |
+| 🪨・Cinzas Novatas | rank | `#7F8C8D` |
 | 👑・Líder de Clã | clan | `#AF7AC5` |
 | 🗡️・Oficial de Clã | clan | `#4A235A` |
 | ⚔️・Membro de Clã | clan | `#0E6251` |
-| 🌱・Recém-chegado | community | `#82E0AA` |
-| 🟢・Membro | community | `#27AE60` |
 | 📺・Criador de Conteúdo | community | `#5DADE2` |
 | 🤝・Aliado | community | `#B7950B` |
+| 🟢・Membro | community | `#27AE60` |
+| 🌱・Recém-chegado | community | `#82E0AA` |
 | 🎮・Elden Ring | interest | `#1F618D` |
 | 🔥・Dark Souls | interest | `#884EA0` |
 | 🩸・Bloodborne | interest | `#117864` |
@@ -195,3 +216,12 @@ Os testes cobrem regras centrais de banco, progressão, cartões, isolamento de 
 - O organizador renomeia e move canais correspondentes por nome/aliases, e altera overwrites das categorias públicas e privadas para implementar o plano. Ele nunca exclui canais ou mensagens. Mudanças de permissões no Discord não possuem rollback automático garantido; faça uma revisão do plano e backup dos bancos antes de aplicar.
 - A centralização de ativações/desativações já bloqueia novas interações do Sistema de Clãs. Algumas telas de módulo são informativas; desligamento integral por flag de todos os módulos ainda não está conectado a todos os listeners/tarefas.
 - Ainda há etapas que exigem validação real de permissões, intents e credenciais externas no Developer Portal/hospedagem.
+
+## Correção adicional — catálogo e feed do YouTube (28/10/2026)
+
+- Corrigido o callback **Catálogo de jogos**: `cogs/catalogo.py` agora omite o argumento `file` quando a grade/capa não produz um anexo. Isso evita o `AttributeError: 'NoneType' object has no attribute 'to_dict'` no envio da interação.
+- Corrigido o mesmo padrão no fluxo de busca de jogos, que também podia enviar `file=None` quando a busca não tinha resultados ou não havia imagem.
+- O aviso HTTP 404 do feed do YouTube é separado do erro do catálogo. O bot continua tentando o fallback pela API quando a chave está configurada. O log agora esclarece que o 404 pode ser temporário ou indicar `YOUTUBE_CHANNEL_ID` incorreto e limita avisos repetidos a um por 15 minutos.
+- Se o RSS falhar e `YOUTUBE_API_KEY` não estiver configurada, o bot registra essa limitação explicitamente. O ID deve ser o ID canônico do canal (`UC` seguido de 22 caracteres), não o nome `@handle` ou uma URL.
+
+Validação local após a correção de hierarquia dos cargos: `compileall` concluído e 47 testes unitários aprovados. Isso não substitui o teste de interação com o bot conectado ao Discord nem a confirmação da API do YouTube com as credenciais da hospedagem.
