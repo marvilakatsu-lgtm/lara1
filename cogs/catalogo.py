@@ -42,7 +42,7 @@ DATA_DIR = os.getenv("CATALOGO_DATA_DIR") or os.getenv("DATA_DIR") or BASE_DIR
 os.makedirs(DATA_DIR, exist_ok=True)
 FONT_PATH = os.path.join(BASE_DIR, "fonts", "DejaVuSans.ttf")
 
-TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+# TOKEN é definido em config.py; o catálogo roda como extensão e não deve redeclarar credenciais.
 DB_PATH = os.path.abspath(os.getenv("CATALOGO_DB_PATH") or os.path.join(DATA_DIR, "jogos.db"))
 CAPAS_DIR = os.path.join(DATA_DIR, "capas")
 MODS_DIR = os.path.join(DATA_DIR, "capas_mods")
