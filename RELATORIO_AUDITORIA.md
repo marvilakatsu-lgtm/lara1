@@ -48,7 +48,7 @@ O ZIP do catálogo também não continha `jogos.db` nem as pastas de dados/image
 - Associações administrativas para destinos de canais, categorias e cargos por seletores do Discord.
 - Migração inicial de IDs antigos válidos, sem substituir valores mais recentes do painel.
 - `/adm` efêmero e paginado com visão geral, configuração, organização, módulos, catálogo, YouTube/ofertas, progressão, clãs, diagnóstico, histórico, backup e ajuda.
-- Organizador com prévia/confirmacão para a estrutura específica Quase Pro: 10 categorias, 63 canais e 34 cargos. Reutiliza canais por nome/alias, renomeia e move para a nova ordem, padroniza cores/permissões dos cargos e normaliza a privacidade das categorias; não exclui canais ou mensagens.
+- Organizador com prévia/confirmacão para a estrutura específica Quase Pro: 8 categorias, 28 canais e 31 cargos. Reutiliza canais por nome/alias, renomeia e move para a nova ordem, padroniza cores/permissões dos cargos e normaliza a privacidade das categorias; não exclui canais ou mensagens.
 - Painel persistente de verificação em `✅・verificação`, painel de escolha de cargos, painéis de catálogo de jogos/mods e Salão dos Juramentos, reutilizados por ID ou custom_id para reduzir duplicatas.
 - Sincronização do cargo de patente pelo XP/nível atual e publicação do painel de self-roles para 6 jogos e 3 avisos/eventos.
 - Geração de backup ZIP com snapshots SQLite dos bancos existentes nos caminhos configurados, além de snapshot pré-migração automático do banco principal quando uma versão de schema mais recente será aplicada.
@@ -72,9 +72,9 @@ O ZIP do catálogo também não continha `jogos.db` nem as pastas de dados/image
 
 ### Administração e organização do servidor
 
-- O organizador renomeia e move canais que correspondem por nome/alias e atualiza overwrites das 10 categorias. A área Portões do Santuário permanece pública; as outras oito categorias públicas negam `view_channel` a `@everyone` e concedem visibilidade ao cargo `🟢・Membro` após verificação. A categoria da equipe mantém ACL restrita. Não exclui canais, mensagens ou bancos. A alteração de permissões/categorias no Discord não possui rollback automático garantido, logo deve ser testada num servidor de homologação e pode falhar parcialmente se houver rate limits, permissões insuficientes ou hierarquia inadequada.
-- O plano cria/atualiza 34 cargos com paleta única. Cargos administrativos preexistentes configurados continuam associados para evitar bloquear a equipe; os cargos oficiais de comunidade/notificações passam para as definições padronizadas.
-- Como Soulsbot, catálogo e organizador estão carregados num único cliente Discord, os três cargos técnicos são etiquetas sem permissões, não três identidades de bot independentes.
+- O organizador renomeia e move canais que correspondem por nome/alias e atualiza overwrites das 8 categorias. A categoria `👋・INÍCIO` permanece pública e somente leitura para não verificados; as outras seis categorias públicas negam `view_channel` a `@everyone` e concedem visibilidade ao cargo `🟢・Membro` após verificação. A categoria da equipe mantém ACL restrita. Não exclui canais, mensagens ou bancos. A alteração de permissões/categorias no Discord não possui rollback automático garantido, logo deve ser testada num servidor de homologação e pode falhar parcialmente se houver rate limits, permissões insuficientes ou hierarquia inadequada.
+- O plano cria/atualiza 31 cargos funcionais com paleta única. Cargos administrativos preexistentes configurados continuam associados para evitar bloquear a equipe; os cargos oficiais de comunidade/notificações passam para as definições padronizadas.
+- Como Soulsbot, catálogo e organizador estão carregados num único cliente Discord, as três antigas etiquetas decorativas de bot não são mais criadas. Se já existirem no servidor, não são removidas automaticamente para evitar apagar atribuições ou overwrites existentes.
 - Algumas opções de liga/desliga na tela `/adm` são informativas e ainda não desconectam todos os listeners/tarefas daquele módulo. O toggle funcional implementado é o de novas interações do Sistema de Clãs.
 - O painel cria backups, mas **não possui uma UI de restauração**. A restauração deve ser feita com o processo parado, preservando primeiro cópia do estado atual.
 - Diagnóstico informa problemas e oferece reparo de recursos dos clãs; não é um reparo automático universal de todos os módulos.
@@ -84,12 +84,20 @@ O ZIP do catálogo também não continha `jogos.db` nem as pastas de dados/image
 
 Nenhum dos dois ZIPs incluía o banco principal, `jogos.db`, imagens, capas ou banco de ofertas da instalação de produção. O código mantém a compatibilidade de caminhos, mas os dados reais não podem ser inventados/reconstruídos. Faça cópia desses arquivos do ambiente antigo antes de implantar.
 
+## 4.1. Revisão de usabilidade — estrutura comunitária simplificada (28/10/2026)
+
+- A navegação foi reduzida de 10 para 8 categorias e de 63 para 28 canais planejados (incluindo a área privada da equipe). Os canais de entrada são somente leitura para `@everyone`; a verificação continua disponível por botão.
+- Destinos combinados: avisos/vídeos; jogos/mods/envio de mods; ofertas/notícias/jogos grátis; perfis/platinas/zerados; Coliseu/runs; Salão dos Juramentos/recrutamento/ranking/eventos.
+- Canais antigos redundantes são movidos para `🗄️・ARQUIVO ANTIGO` com acesso restrito à equipe; categorias antigas conhecidas são ocultadas. Não há exclusão automática de mensagens ou canais.
+- Os IDs de configuração dos módulos continuam preservados, ainda que apontem ao mesmo canal. Isso permite consolidar a navegação sem quebrar as automações que consultam chaves distintas.
+- As três etiquetas decorativas de bot deixaram de ser parte dos cargos gerenciados, pois a integração utiliza uma única identidade Discord. Patentes, cargos de equipe, comunidade, clã e interesses mantêm seus nomes/cores e o XP segue os limiares originais.
+
 ## 5. Testes executados
 
 | Verificação | Resultado |
 |---|---|
 | `python -m compileall -q bot.py config.py database.py settings_store.py cogs tests` | Passou |
-| `python -m unittest discover -s tests -v` | 42 testes passaram |
+| `python -m unittest discover -s tests -v` | 49 testes passaram |
 | Isolamento das configurações por servidor | Coberto por teste unitário |
 | Migração versionada, adição de coluna legada e snapshot pré-migração | Coberto por teste unitário |
 | Limite máximo de dez integrantes / exclusividade de vínculo | Coberto por teste de SQLite e trigger |
@@ -111,7 +119,7 @@ As dependências `discord.py`, `aiosqlite` e `google-genai` não estavam instala
 
 ## Correções pós-entrega e versão da estrutura
 
-O fluxo de `/adm` não passa `None` a `guild.create_category(overwrites=...)`: categorias regulares recebem `{}`, e a categoria da equipe recebe seu mapa de permissões específico. O callback de confirmação registra falhas inesperadas e responde ao administrador de forma efêmera. A ordem dos campos da estrutura foi alinhada às rotinas de prévia/aplicação, e um teste impede regressão do schema. O catálogo publica nos canais configurados e o organizador cria/atualiza os painéis persistentes. Testes locais: 39 aprovados; a execução end-to-end com Discord permanece pendente de credenciais e instalação das dependências na hospedagem.
+O fluxo de `/adm` não passa `None` a `guild.create_category(overwrites=...)`: categorias regulares recebem `{}`, e a categoria da equipe recebe seu mapa de permissões específico. O callback de confirmação registra falhas inesperadas e responde ao administrador de forma efêmera. A ordem dos campos da estrutura foi alinhada às rotinas de prévia/aplicação, e um teste impede regressão do schema. O catálogo publica nos canais configurados e o organizador cria/atualiza os painéis persistentes. Testes locais na versão atual: 49 aprovados; a execução end-to-end com Discord permanece pendente de credenciais e instalação das dependências na hospedagem.
 
 ## Adendo — erro de anexo do catálogo e fallback de YouTube (28/10/2026)
 
@@ -126,8 +134,8 @@ O fluxo de `/adm` não passa `None` a `guild.create_category(overwrites=...)`: c
 ## Adendo — hierarquia de cargos (28/10/2026)
 
 - A ordenação anterior seguia a lista de criação das patentes, o que deixava a patente inicial acima das mais altas. Agora a pilha é calculada por `level_min` em ordem decrescente: Sentinela Imortal → Lenda do Coliseu → Senhor das Almas → Executor Sombrio → Arauto da Ruína → Guardião das Cinzas → Cavaleiro do Abismo → Caçador de Almas → Guerreiro Caído → Cinzas Novatas.
-- Líder de Clã > Oficial de Clã > Membro de Clã; Criador/Aliado > Membro > Recém-chegado; interesses e etiquetas técnicas ficam na base.
+- Líder de Clã > Oficial de Clã > Membro de Clã; Criador/Aliado > Membro > Recém-chegado; os nove cargos de interesse/notificação ficam na base.
 - O organizador não tenta mais mover cargos de equipe para cima do próprio cargo do bot. Cargos funcionais são ordenados apenas abaixo do cargo real do bot. A ordem de equipe esperada é Fundador > Administrador > Moderador > Suporte > Desenvolvedor, acima do cargo do bot.
 - A API do Discord impede um bot de ordenar ou editar cargos no mesmo nível ou acima da sua maior role. Por isso, quando os cargos de equipe recém-criados ainda estiverem abaixo do bot, o `/adm` informa que o administrador precisa movê-los manualmente em **Configurações do servidor → Cargos** e não deve atribuí-los a membros antes de concluir o ajuste. Após mover os cargos, executar `/adm` novamente valida a ordem. O diagnóstico também detecta cargos funcionais acima do bot ou fora da sequência.
 - O mapeamento de IDs de cargos é persistido inclusive quando um cargo acima do bot não pode ser editado, evitando perder a associação ao reabrir o painel.
-- Foram adicionados quatro testes da ordem da equipe, patentes descendentes, papéis de clã/comunidade e exclusão dos cargos de equipe da ordenação automática. Validação atual: `compileall` e 47 testes aprovados. Não houve teste autenticado no Discord.
+- Foram adicionados quatro testes da ordem da equipe, patentes descendentes, papéis de clã/comunidade e exclusão dos cargos de equipe da ordenação automática. Validação na etapa de hierarquia: `compileall` e 47 testes aprovados; a versão comunitária atual tem 49 testes aprovados. Não houve teste autenticado no Discord.

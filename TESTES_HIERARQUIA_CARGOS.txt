@@ -1,53 +1,23 @@
-test_catalogo_render_omits_missing_file_in_send_message_calls (test_catalogo_source_regressions.CatalogoAttachmentRegressionTests.test_catalogo_render_omits_missing_file_in_send_message_calls) ... ok
-test_decisao_de_platina_so_passa_uma_vez (test_core.BancoTests.test_decisao_de_platina_so_passa_uma_vez) ... ok
-test_recompensa_normal_continua_igual (test_core.BancoTests.test_recompensa_normal_continua_igual) ... ok
-test_recordes_recentes_um_por_categoria (test_core.BancoTests.test_recordes_recentes_um_por_categoria) ... ok
-test_stats_de_runs_e_recordes (test_core.BancoTests.test_stats_de_runs_e_recordes) ... ok
-test_xp_nunca_fica_negativo (test_core.BancoTests.test_xp_nunca_fica_negativo) ... ok
-test_avatar_invalido_cai_para_inicial (test_core.CartaoTests.test_avatar_invalido_cai_para_inicial) ... ok
-test_avatar_valido (test_core.CartaoTests.test_avatar_valido) ... ok
-test_com_titulo (test_core.CartaoTests.test_com_titulo) ... ok
-test_gera_png_valido_com_tamanho_fixo (test_core.CartaoTests.test_gera_png_valido_com_tamanho_fixo) ... ok
-test_limpar_texto (test_core.CartaoTests.test_limpar_texto) ... ok
-test_muitas_conquistas_e_valores_grandes (test_core.CartaoTests.test_muitas_conquistas_e_valores_grandes) ... ok
-test_nomes_hostis_nao_quebram (test_core.CartaoTests.test_nomes_hostis_nao_quebram) ... ok
-test_banco_bloqueia_11o_integrante_e_mantem_exclusividade (test_core.ConfiguracaoClansTests.test_banco_bloqueia_11o_integrante_e_mantem_exclusividade) ... ok
-test_configuracao_e_isolada_por_servidor (test_core.ConfiguracaoClansTests.test_configuracao_e_isolada_por_servidor) ... ok
-test_ordenadas_da_mais_rara_para_a_mais_comum (test_core.ConquistasTests.test_ordenadas_da_mais_rara_para_a_mais_comum) ... ok
-test_podio_exige_ter_pontuado (test_core.ConquistasTests.test_podio_exige_ter_pontuado) ... ok
-test_primeiro_marco_tem_nome_proprio (test_core.ConquistasTests.test_primeiro_marco_tem_nome_proprio) ... ok
-test_resumo_limita_e_conta_o_resto (test_core.ConquistasTests.test_resumo_limita_e_conta_o_resto) ... ok
-test_sem_dados_sem_conquistas (test_core.ConquistasTests.test_sem_dados_sem_conquistas) ... ok
-test_so_o_maior_marco_aparece (test_core.ConquistasTests.test_so_o_maior_marco_aparece) ... ok
-test_catalogo_consistente (test_core.LojaTests.test_catalogo_consistente) ... ok
-test_compra_debita_e_registra (test_core.LojaTests.test_compra_debita_e_registra) ... ok
-test_equipar_so_um_por_tipo_e_so_o_que_possui (test_core.LojaTests.test_equipar_so_um_por_tipo_e_so_o_que_possui) ... ok
-test_inventarios_sao_independentes (test_core.LojaTests.test_inventarios_sao_independentes) ... ok
-test_linha_item_estados (test_core.LojaTests.test_linha_item_estados) ... ok
-test_nao_compra_duas_vezes (test_core.LojaTests.test_nao_compra_duas_vezes) ... ok
-test_sem_saldo_nao_debita_nem_entrega (test_core.LojaTests.test_sem_saldo_nao_debita_nem_entrega) ... ok
-test_migracao_e_versionada_e_faz_backup_previo (test_core.MigracaoSchemaTests.test_migracao_e_versionada_e_faz_backup_previo) ... ok
-test_barra_limites (test_core.UiTests.test_barra_limites) ... ok
-test_formatos (test_core.UiTests.test_formatos) ... ok
-test_progresso_e_proxima_patente (test_core.UiTests.test_progresso_e_proxima_patente) ... ok
-test_toda_patente_tem_cor (test_core.UiTests.test_toda_patente_tem_cor) ... ok
-test_canais_de_interesse_têm_nove_opcoes_e_ids_persistentes (test_server_structure.EstruturaServidorTests.test_canais_de_interesse_têm_nove_opcoes_e_ids_persistentes) ... ok
-test_categoria_de_entrada_e_visivel_sem_verificacao (test_server_structure.EstruturaServidorTests.test_categoria_de_entrada_e_visivel_sem_verificacao) ... ok
-test_categoria_de_equipe_tem_politica_propria (test_server_structure.EstruturaServidorTests.test_categoria_de_equipe_tem_politica_propria) ... ok
-test_categorias_publicas_exigem_cargo_de_membro_verificado (test_server_structure.EstruturaServidorTests.test_categorias_publicas_exigem_cargo_de_membro_verificado) ... ok
-test_dez_categorias_e_sessenta_e_tres_canais (test_server_structure.EstruturaServidorTests.test_dez_categorias_e_sessenta_e_tres_canais) ... ok
-test_hierarquia_da_equipe_e_explicita_e_na_ordem_correta (test_server_structure.EstruturaServidorTests.test_hierarquia_da_equipe_e_explicita_e_na_ordem_correta) ... ok
-test_hierarquia_de_cla_e_comunidade_respeita_funcao (test_server_structure.EstruturaServidorTests.test_hierarquia_de_cla_e_comunidade_respeita_funcao) ... ok
-test_nomes_das_categorias_sao_os_do_plano (test_server_structure.EstruturaServidorTests.test_nomes_das_categorias_sao_os_do_plano) ... ok
-test_ordenacao_automatica_nunca_tenta_mover_cargos_de_equipe (test_server_structure.EstruturaServidorTests.test_ordenacao_automatica_nunca_tenta_mover_cargos_de_equipe) ... ok
-test_patentes_antigas_e_novas_sao_reconhecidas (test_server_structure.EstruturaServidorTests.test_patentes_antigas_e_novas_sao_reconhecidas) ... ok
-test_patentes_ordenadas_da_maior_para_a_menor_na_hierarquia (test_server_structure.EstruturaServidorTests.test_patentes_ordenadas_da_maior_para_a_menor_na_hierarquia) ... ok
-test_patentes_preservam_niveis_e_nomes_da_logica_original (test_server_structure.EstruturaServidorTests.test_patentes_preservam_niveis_e_nomes_da_logica_original) ... ok
-test_schema_de_categoria_tem_chave_aliases_e_canais_na_ordem_esperada (test_server_structure.EstruturaServidorTests.test_schema_de_categoria_tem_chave_aliases_e_canais_na_ordem_esperada) ... ok
-test_todos_os_cargos_tem_nome_chave_e_cor_unicos (test_server_structure.EstruturaServidorTests.test_todos_os_cargos_tem_nome_chave_e_cor_unicos) ... ok
+Quase Pro — validação da reorganização comunitária simplificada
+Data: 2026-10-28
 
+Compilação:
+  python -m compileall -q bot.py config.py database.py settings_store.py cogs tests server_structure.py levels.py
+  Resultado: PASSOU
+
+Testes unitários:
+  python -m unittest discover -s tests
+.................................................
 ----------------------------------------------------------------------
-Ran 47 tests in 1.331s
+Ran 49 tests in 1.410s
 
 OK
-[database] Snapshot pré-migração criado: /tmp/tmpfk7x4jso/legado.db.pre-migration-20261028T042110Z.bak
+[database] Snapshot pré-migração criado: /tmp/tmpr8_7l8t2/legado.db.pre-migration-20261028T045207Z.bak
+
+Inventário da estrutura:
+  Categorias: 8
+  Canais planejados: 28 (inclui a área privada da equipe)
+  Cargos com cor única: 31
+  Composição dos cargos: 5 equipe, 10 patentes, 3 clãs, 4 comunidade, 9 interesses/notificações
+
+Não executado: login real, criação/movimentação de canais e verificação de permissões na API do Discord.

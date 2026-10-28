@@ -1,159 +1,109 @@
-"""Estrutura e identidade visual oficiais do servidor Quase Pro.
+"""Estrutura compacta e funcional do servidor Quase Pro.
 
-Este módulo contém apenas dados e utilitários puros para permitir validação sem
-conectar à API do Discord. Nenhuma operação destrutiva é definida aqui.
+A organização é orientada ao uso diário: menos categorias, canais combinados quando
+compartilham a mesma finalidade e destinos de bot associados ao mesmo canal quando
+isso facilita a navegação. Canais e mensagens antigos nunca são excluídos; os canais
+obsoletos conhecidos são movidos para um arquivo privado durante a aplicação confirmada.
 """
 from __future__ import annotations
 
 from levels import PATENTES, SIMBOLOS_PATENTES, nome_patente_exibicao
 
-# (nome da categoria, chave persistida, aliases de categorias antigas, canais)
-# Canais: (nome final, tipo, configuração opcional, alias de canal antigo, acesso especial)
+# Cada canal é (nome, tipo, chave(s) de configuração, aliases antigos, acesso especial).
+# A chave pode ser uma string ou uma tupla: feeds que servem ao mesmo propósito podem
+# compartilhar um canal sem quebrar as configurações legadas dos respectivos módulos.
 ORGANIZATION = [
     (
-        "🔥・PORTÕES DO SANTUÁRIO", "category_start_id", ("COMECE AQUI", "PORTÕES DO SANTUÁRIO"),
+        "👋・INÍCIO", "category_start_id", ("COMECE AQUI", "🔥 PORTÕES DO SANTUÁRIO", "PORTÕES DO SANTUÁRIO"),
         [
-            ("📜・boas-vindas", "text", None, ("boas-vindas", "bem-vindos"), None),
-            ("📕・regras-do-reino", "text", None, ("regras", "regras-do-servidor"), None),
+            ("👋・boas-vindas", "text", None, ("boas-vindas", "bem-vindos", "welcome", "guia-do-servidor"), None),
+            ("📜・regras", "text", None, ("regras", "regras-do-reino", "regras-do-servidor"), None),
             ("✅・verificação", "text", None, ("verificacao", "verificação", "verificacao-do-servidor"), None),
-            ("📢・anúncios-importantes", "text", "announcements_channel_id", ("anuncios", "anuncios-importantes"), None),
-            ("🎭・escolha-seus-cargos", "text", None, ("selecao-de-cargos", "escolha-seus-cargos"), None),
-            ("🧭・guia-do-servidor", "text", None, ("guia-do-servidor",), None),
         ],
     ),
     (
-        "🎬・QUASE PRO", "category_quasepro_id", ("QUASE PRO",),
+        "📣・QUASE PRO", "category_quasepro_id", ("QUASE PRO", "🎬 QUASE PRO"),
         [
-            ("📣・avisos-do-canal", "text", None, ("avisos-do-canal",), None),
-            ("🎥・novos-vídeos", "text", "creator_video_channel_id", ("videos", "novos-videos"), None),
-            ("🔴・lives-ao-vivo", "text", "creator_live_channel_id", ("lives", "lives-ao-vivo"), None),
-            ("💡・sugestões-de-vídeos", "text", None, ("sugestoes", "sugestoes-de-videos"), None),
-            ("🗳️・votações-da-comunidade", "text", None, ("votacoes-da-comunidade",), None),
-            ("🎬・bastidores-do-quase-pro", "text", None, ("bastidores-do-quase-pro",), None),
+            ("📣・avisos-e-vídeos", "text", ("announcements_channel_id", "creator_video_channel_id"),
+             ("avisos-do-canal", "anuncios-importantes", "anúncios-importantes", "novos-videos", "novos-vídeos", "videos", "vídeos"), None),
+            ("🔴・lives", "text", "creator_live_channel_id", ("lives", "lives-ao-vivo", "avisos-de-lives"), None),
+            ("💡・conteúdo-e-votações", "text", None,
+             ("sugestoes-de-videos", "sugestões-de-vídeos", "votacoes-da-comunidade", "votações-da-comunidade", "bastidores-do-quase-pro"), None),
         ],
     ),
     (
-        "🏰・PRAÇA DOS MACULADOS", "category_community_id", ("COMUNIDADE", "PRAÇA DOS MACULADOS"),
+        "💬・COMUNIDADE", "category_community_id", ("COMUNIDADE", "🏰 PRAÇA DOS MACULADOS", "PRAÇA DOS MACULADOS"),
         [
-            ("💬・bate-papo", "text", None, ("chat-geral", "bate-papo"), None),
-            ("👋・apresente-se", "text", None, ("apresentacoes", "apresente-se"), None),
-            ("😂・memes-do-reino", "text", None, ("memes", "memes-do-reino"), None),
-            ("📸・prints-e-clipes", "text", None, ("prints-e-clipes",), None),
-            ("🤝・procurando-jogadores", "text", None, ("procurando-jogadores",), None),
-            ("🎮・outros-jogos", "text", None, ("outros-jogos",), None),
-            ("💭・sugestões-do-servidor", "text", None, ("sugestoes-do-servidor",), None),
+            ("💬・chat-geral", "text", None, ("chat-geral", "bate-papo", "conversa-geral", "apresente-se", "apresentacoes", "apresentações"), None),
+            ("😂・memes-e-clipes", "text", None, ("memes", "memes-do-reino", "prints-e-clipes", "clipes", "prints"), None),
+            ("🤝・procurando-jogadores", "text", None, ("procurando-jogadores", "procurando-coop"), None),
+            ("🎮・outros-jogos", "text", None, ("outros-jogos", "conversas-sobre-jogos"), None),
+            ("💭・ajuda-e-sugestões", "text", "support_channel_id",
+             ("sugestoes-do-servidor", "sugestões-do-servidor", "sugestoes", "sugestões", "central-de-ajuda", "pergunte-a-ia", "pergunte-à-ia", "abrir-suporte"), None),
+            ("🎭・cargos-de-interesse", "text", None, ("escolha-seus-cargos", "selecao-de-cargos", "escolha-cargos"), None),
         ],
     ),
     (
-        "⚔️・TERRAS SOULSLIKE", "category_soulslike_id", ("UNIVERSO SOULSLIKE", "TERRAS SOULSLIKE"),
+        "🎮・SOULSLIKE", "category_soulslike_id", ("UNIVERSO SOULSLIKE", "TERRAS SOULSLIKE", "⚔️ TERRAS SOULSLIKE"),
         [
             ("🌳・elden-ring", "text", None, ("elden-ring",), None),
-            ("🔥・dark-souls", "text", None, ("dark-souls",), None),
-            ("🛡️・dark-souls-ii", "text", None, ("dark-souls-ii",), None),
-            ("⚔️・dark-souls-iii", "text", None, ("dark-souls-iii",), None),
-            ("🩸・bloodborne", "text", None, ("bloodborne",), None),
-            ("🥷・sekiro", "text", None, ("sekiro",), None),
-            ("👑・demon-souls", "text", None, ("demon-souls",), None),
-            ("🦾・lies-of-p", "text", None, ("lies-of-p",), None),
-            ("🌑・nightreign", "text", None, ("nightreign",), None),
-            ("🗡️・builds-e-armas", "text", None, ("builds-e-estrategias", "builds-e-armas"), None),
-            ("💀・chefes-e-estratégias", "text", None, ("chefes-e-estrategias",), None),
-            ("🏆・runs-e-desafios", "text", "soulslike_channel_id", ("runs-e-desafios",), None),
-            ("📖・lore-e-teorias", "text", None, ("lore-e-teorias",), None),
+            ("🔥・dark-souls", "text", None, ("dark-souls", "dark-souls-ii", "dark-souls-iii", "dark-souls-2", "dark-souls-3"), None),
+            ("🌑・outros-soulslikes", "text", None,
+             ("bloodborne", "sekiro", "demon-souls", "lies-of-p", "nightreign", "outros-soulslikes", "outros-soulslike"), None),
+            ("🗡️・builds-e-chefes", "text", None,
+             ("builds-e-armas", "builds-e-estrategias", "builds-e-estratégias", "chefes-e-estrategias", "chefes-e-estratégias", "lore-e-teorias"), None),
+            ("🏆・runs-e-desafios", "text", "soulslike_channel_id", ("runs-e-desafios", "runs-registradas", "runs"), None),
         ],
     ),
     (
-        "🏆・COLISEU DAS CINZAS", "category_systems_id", ("SISTEMAS SOULSBOT", "COLISEU DAS CINZAS"),
+        "📚・CATÁLOGO", "category_catalog_id", ("CATÁLOGO E OFERTAS", "ARQUIVO DO VIAJANTE", "📚 ARQUIVO DO VIAJANTE"),
         [
-            ("🏟️・hall-do-coliseu", "text", "colizeu_channel_id", ("coliseu", "hall-do-coliseu"), None),
-            ("📊・ranking-de-zerados", "text", "zerados_channel_id", ("ranking", "ranking-de-zerados"), None),
-            ("💎・hall-das-platinas", "text", "platinas_channel_id", ("platinas", "hall-das-platinas"), None),
-            ("🎖️・perfis-e-patentes", "text", "perfis_channel_id", ("perfis", "perfis-e-patentes"), None),
-            ("🔥・santuários", "text", None, ("santuarios", "santuários"), None),
-            ("📜・runs-registradas", "text", None, ("runs-registradas",), None),
-            ("🥇・conquistas-da-comunidade", "text", None, ("conquistas-da-comunidade",), None),
+            ("📚・jogos-e-mods", "text", ("catalog_channel_id", "mods_channel_id"),
+             ("catalogo-de-jogos", "catálogo-de-jogos", "catalogo-de-mods", "catálogo-de-mods", "envio-de-mods"), None),
+            ("🎁・ofertas-e-notícias", "text", ("games_channel_id", "promos_channel_id", "news_channel_id"),
+             ("jogos-gratis", "jogos-grátis", "promocoes", "promocoes-gamer", "promoções-gamer", "noticias-gamer", "notícias-gamer"), None),
         ],
     ),
     (
-        "📚・ARQUIVO DO VIAJANTE", "category_catalog_id", ("CATÁLOGO E OFERTAS", "ARQUIVO DO VIAJANTE"),
+        "🏆・PROGRESSÃO E CLÃS", "category_systems_id",
+        ("SISTEMAS SOULSBOT", "COLISEU DAS CINZAS", "CLÃS", "SALÃO DOS JURAMENTOS", "🛡️ SALÃO DOS JURAMENTOS"),
         [
-            ("🎮・catálogo-de-jogos", "text", "catalog_channel_id", ("catalogo-de-jogos", "catálogo-de-jogos"), None),
-            ("🧩・catálogo-de-mods", "text", "mods_channel_id", ("catalogo-de-mods", "catálogo-de-mods"), None),
-            ("📥・envio-de-mods", "text", None, ("envio-de-mods",), None),
-            ("📰・notícias-gamer", "text", "news_channel_id", ("noticias-gamer", "notícias-gamer"), None),
-            ("🎁・jogos-grátis", "text", "games_channel_id", ("jogos-gratis", "jogos-grátis"), None),
-            ("💰・promoções-gamer", "text", "promos_channel_id", ("promocoes", "promocoes-gamer", "promoções-gamer"), None),
+            ("🏅・perfis-e-conquistas", "text", ("perfis_channel_id", "platinas_channel_id", "zerados_channel_id"),
+             ("perfis", "perfis-e-patentes", "hall-das-platinas", "platinas", "ranking-de-zerados", "conquistas-da-comunidade", "santuarios", "santuários"), None),
+            ("⚔️・coliseu-e-desafios", "text", "colizeu_channel_id",
+             ("coliseu", "hall-do-coliseu", "runs-registradas", "atividades-soulslike"), None),
+            ("🛡️・clãs", "text", ("clan_hall_channel_id", "clan_recruitment_channel_id", "clan_ranking_channel_id", "clan_events_channel_id"),
+             ("painel-de-clas", "painel-de-clãs", "recrutamento-de-clas", "recrutamento-de-clãs", "ranking-de-clas", "ranking-de-clãs", "atividades-coletivas", "eventos-de-clas", "eventos-de-clãs"), None),
         ],
     ),
     (
-        "🤖・ORÁCULO DO SANTUÁRIO", "category_oracle_id", ("ORÁCULO DO SANTUÁRIO",),
+        "🔊・VOZ", "category_voice_id", ("VOZ", "FOGUEIRAS DA COMUNIDADE", "🔊 FOGUEIRAS DA COMUNIDADE"),
         [
-            ("🧠・pergunte-à-ia", "text", None, ("pergunte-a-ia", "pergunte-à-ia"), None),
-            ("📘・central-de-ajuda", "text", None, ("central-de-ajuda",), None),
-            ("🎫・abrir-suporte", "text", "support_channel_id", ("abrir-suporte",), None),
+            ("🔊・papo-livre", "voice", None, ("sala-geral", "papo-livre"), None),
+            ("🎮・coop-e-jogos", "voice", None, ("sala-de-jogos", "coop-souls", "coop-e-jogos", "voz-outros-jogos"), None),
+            ("🎙️・eventos", "voice", None, ("sala-de-eventos", "eventos"), None),
         ],
     ),
     (
-        "🛡️・SALÃO DOS JURAMENTOS", "category_clans_id", ("CLÃS", "SALÃO DOS JURAMENTOS"),
-        [
-            ("⚔️・painel-de-clãs", "text", "clan_hall_channel_id", ("painel-de-clas", "painel-de-clãs"), None),
-            ("📜・recrutamento-de-clãs", "text", "clan_recruitment_channel_id", ("recrutamento-de-clas", "recrutamento-de-clãs"), None),
-            ("🏅・ranking-de-clãs", "text", "clan_ranking_channel_id", ("ranking-de-clas", "ranking-de-clãs"), None),
-            ("📅・eventos-de-clãs", "text", "clan_events_channel_id", ("atividades-coletivas", "eventos-de-clas", "eventos-de-clãs"), None),
-        ],
-    ),
-    (
-        "🔊・FOGUEIRAS DA COMUNIDADE", "category_voice_id", ("VOZ", "FOGUEIRAS DA COMUNIDADE"),
-        [
-            ("🔥・papo-livre", "voice", None, ("Sala Geral", "papo-livre"), None),
-            ("🤝・coop-souls", "voice", None, ("Sala de Jogos", "coop-souls"), None),
-            ("⚔️・arena-pvp", "voice", None, ("arena-pvp",), None),
-            ("🎮・outros-jogos", "voice", None, ("voz-outros-jogos",), None),
-            ("🎙️・sala-de-eventos", "voice", None, ("sala-de-eventos",), None),
-        ],
-    ),
-    (
-        "🔒・BASTIDORES DA ORDEM", "category_team_id", ("EQUIPE", "BASTIDORES DA ORDEM"),
+        "🔒・EQUIPE", "category_team_id", ("EQUIPE", "BASTIDORES DA ORDEM", "🔒 BASTIDORES DA ORDEM"),
         [
             ("💬・chat-da-equipe", "text", None, ("chat-da-equipe",), None),
-            ("🛡️・logs-de-moderação", "text", "mod_channel_id", ("moderacao", "logs-de-moderacao", "logs-de-moderação"), None),
-            ("🤖・logs-dos-bots", "text", "bot_logs_channel_id", ("logs", "logs-dos-bots"), "developer"),
-            ("⚙️・comandos-adm", "text", None, ("comandos-adm",), "developer"),
-            ("🎫・relatórios-de-suporte", "text", "support_reports_channel_id", ("relatorios-de-suporte", "relatórios-de-suporte"), "support"),
-            ("📋・auditoria-de-clãs", "text", "clan_audit_channel_id", ("auditoria-de-clas", "auditoria-de-clãs"), None),
+            ("📋・logs-e-auditoria", "text", ("mod_channel_id", "bot_logs_channel_id", "clan_audit_channel_id"),
+             ("moderacao", "moderação", "logs", "logs-de-moderacao", "logs-de-moderação", "logs-dos-bots", "auditoria-de-clas", "auditoria-de-clãs"), None),
+            ("🎫・suporte-e-aprovações", "text", "support_reports_channel_id",
+             ("relatorios-de-suporte", "relatórios-de-suporte", "suporte-e-aprovacoes", "suporte-e-aprovações"), "support"),
         ],
     ),
 ]
 
-# A categoria de entrada é a única área pública antes da verificação. Todas as
-# demais categorias públicas exigem o cargo verificado; a equipe usa ACL própria.
 ENTRY_CATEGORY_KEY = "category_start_id"
 STAFF_CATEGORY_KEY = "category_team_id"
 VERIFICATION_CHANNEL_NAME = "✅・verificação"
-
-
-def category_access_mode(category_key: str) -> str:
-    """Retorna 'entry', 'staff' ou 'verified' para a política de acesso da categoria."""
-    if category_key == ENTRY_CATEGORY_KEY:
-        return "entry"
-    if category_key == STAFF_CATEGORY_KEY:
-        return "staff"
-    return "verified"
-
-
-# Alias explicitamente listados para migrar nomes antigos sem excluir mensagens.
-CATEGORY_KEYS = {key: name for name, key, _aliases, _channels in ORGANIZATION}
-
-# Agrupamento visual. A ordem dentro de cada grupo é definida explicitamente abaixo;
-# nunca derive a hierarquia da ordem de criação dos cargos.
-ROLE_GROUP_ORDER = ("staff", "rank", "clan", "community", "interest", "technical")
+ROLE_GROUP_ORDER = ("staff", "rank", "community", "clan", "interest")
 STAFF_ROLE_ORDER = ("founder", "administrator", "moderator", "support", "developer")
 CLAN_ROLE_ORDER = ("clan_leader", "clan_officer", "clan_member")
-# Status de criador/aliado acima dos cargos de comunidade comum; Membro acima de Recém-chegado.
 COMMUNITY_ROLE_ORDER = ("creator", "ally", "member", "newcomer")
 
-# Role definitions use distinct hex colors across all managed roles. The three
-# permission profiles are applied only after an administrator confirms /adm.
 ROLE_DEFINITIONS = [
     {"key": "founder", "name": "👑・Fundador", "color": 0xF1C40F, "group": "staff", "aliases": ("Fundador", "👑 Fundador"), "permissions": "founder"},
     {"key": "administrator", "name": "⚙️・Administrador", "color": 0xE74C3C, "group": "staff", "aliases": ("Administrador", "⚙️ Administrador"), "permissions": "administrator"},
@@ -209,50 +159,32 @@ ROLE_DEFINITIONS.extend([
     {"key": "notice_videos", "name": "📹・Avisos de vídeos", "color": 0x239B56, "group": "interest", "aliases": ("Avisos de vídeos", "Avisos de videos"), "permissions": "none"},
     {"key": "notice_lives", "name": "🔴・Avisos de lives", "color": 0xCA6F1E, "group": "interest", "aliases": ("Avisos de lives",), "permissions": "none"},
     {"key": "events_challenges", "name": "🏆・Eventos e desafios", "color": 0x616A6B, "group": "interest", "aliases": ("Eventos e desafios",), "permissions": "none"},
-    {"key": "bot_soulsbot", "name": "🤖・Soulsbot", "color": 0xA3E4D7, "group": "technical", "aliases": ("Soulsbot",), "permissions": "none"},
-    {"key": "bot_catalog", "name": "📚・Bot Catálogo", "color": 0xF5B7B1, "group": "technical", "aliases": ("Bot Catálogo", "Bot Catalogo"), "permissions": "none"},
-    {"key": "bot_organizer", "name": "⚙️・Bot Organizador", "color": 0xFAD7A0, "group": "technical", "aliases": ("Bot Organizador",), "permissions": "none"},
 ])
 
 
-
 def role_hierarchy_keys(include_staff: bool = True) -> list[str]:
-    """Cargo keys em ordem visual de cima para baixo (maior para menor hierarquia).
-
-    Discord não permite que o bot mova cargos acima do próprio maior cargo. Por isso,
-    ``include_staff=False`` é a lista que a aplicação pode ordenar automaticamente:
-    todos os cargos funcionais abaixo do cargo real do bot. Cargos de equipe devem
-    ficar manualmente acima do cargo real do bot.
-    """
+    """Cargo keys em ordem visual de cima para baixo (maior para menor hierarquia)."""
     by_key = {item["key"]: item for item in ROLE_DEFINITIONS}
     keys: list[str] = []
     if include_staff:
         keys.extend(key for key in STAFF_ROLE_ORDER if key in by_key)
     ranks = sorted(
         (item for item in ROLE_DEFINITIONS if item.get("group") == "rank"),
-        key=lambda item: int(item.get("level_min", 0)),
-        reverse=True,
+        key=lambda item: int(item.get("level_min", 0)), reverse=True,
     )
     keys.extend(item["key"] for item in ranks)
     keys.extend(key for key in CLAN_ROLE_ORDER if key in by_key)
     keys.extend(key for key in COMMUNITY_ROLE_ORDER if key in by_key)
     keys.extend(item["key"] for item in ROLE_DEFINITIONS if item.get("group") == "interest")
-    keys.extend(item["key"] for item in ROLE_DEFINITIONS if item.get("group") == "technical")
-    # Keep forward compatibility if a new role group/key is added later without
-    # accidentally putting staff roles back into the bot-manageable lower stack.
-    keys.extend(
-        item["key"] for item in ROLE_DEFINITIONS
-        if item["key"] not in keys and (include_staff or item.get("group") != "staff")
-    )
+    keys.extend(item["key"] for item in ROLE_DEFINITIONS if item["key"] not in keys and (include_staff or item.get("group") != "staff"))
     return keys
 
 
 def managed_role_hierarchy_keys() -> list[str]:
-    """Cargos que o bot pode organizar abaixo de si; exclui explicitamente a equipe."""
+    """Cargos que o bot pode organizar abaixo de si; exclui cargos de equipe."""
     return role_hierarchy_keys(include_staff=False)
 
 
-# Settings whose logical names are consumed by existing bot modules.
 ROLE_SETTING_KEYS = {
     "founder": "founder_role_id",
     "administrator": "admin_role_id",
@@ -264,51 +196,77 @@ ROLE_SETTING_KEYS = {
     "notice_lives": "live_notice_role_id",
 }
 
-# Old category names map to the official category, while preserving channel IDs.
 CHANNEL_SETTINGS_LABELS = {
-    "mod_channel_id": ("Logs de moderação e aprovações", 0, "text"),
-    "platinas_channel_id": ("Hall das platinas", 0, "text"),
-    "colizeu_channel_id": ("Hall do Coliseu", 0, "text"),
-    "perfis_channel_id": ("Perfis e patentes", 0, "text"),
+    "mod_channel_id": ("Logs e moderação", 0, "text"),
+    "platinas_channel_id": ("Perfis e conquistas — platinas", 0, "text"),
+    "colizeu_channel_id": ("Coliseu e desafios", 0, "text"),
+    "perfis_channel_id": ("Perfis e conquistas — perfis", 0, "text"),
     "soulslike_channel_id": ("Runs e desafios Soulslike", 0, "text"),
-    "zerados_channel_id": ("Ranking de zerados", 0, "text"),
-    "creator_video_channel_id": ("Novos vídeos do canal", 0, "text"),
-    "creator_live_channel_id": ("Lives ao vivo", 0, "text"),
-    "games_channel_id": ("Jogos grátis", 0, "text"),
-    "promos_channel_id": ("Promoções gamer", 0, "text"),
-    "clan_hall_channel_id": ("Painel de clãs / Salão dos Juramentos", 0, "text"),
-    "announcements_channel_id": ("Anúncios importantes", 0, "text"),
-    "catalog_channel_id": ("Catálogo de jogos", 0, "text"),
-    "mods_channel_id": ("Catálogo de mods", 0, "text"),
-    "news_channel_id": ("Notícias gamer", 0, "text"),
-    "support_channel_id": ("Abrir suporte", 0, "text"),
-    "support_reports_channel_id": ("Relatórios de suporte", 0, "text"),
-    "clan_recruitment_channel_id": ("Recrutamento de clãs", 0, "text"),
-    "clan_ranking_channel_id": ("Ranking de clãs", 0, "text"),
-    "clan_events_channel_id": ("Eventos de clãs", 0, "text"),
-    "bot_logs_channel_id": ("Logs dos bots", 0, "text"),
-    "clan_audit_channel_id": ("Auditoria de clãs", 0, "text"),
+    "zerados_channel_id": ("Perfis e conquistas — jogos concluídos", 0, "text"),
+    "creator_video_channel_id": ("Avisos e vídeos do canal", 0, "text"),
+    "creator_live_channel_id": ("Lives do canal", 0, "text"),
+    "games_channel_id": ("Ofertas e notícias — jogos grátis", 0, "text"),
+    "promos_channel_id": ("Ofertas e notícias — promoções", 0, "text"),
+    "clan_hall_channel_id": ("Painel de clãs", 0, "text"),
+    "announcements_channel_id": ("Avisos do Quase Pro", 0, "text"),
+    "catalog_channel_id": ("Catálogo de jogos e mods — jogos", 0, "text"),
+    "mods_channel_id": ("Catálogo de jogos e mods — mods", 0, "text"),
+    "news_channel_id": ("Ofertas e notícias — notícias", 0, "text"),
+    "support_channel_id": ("Ajuda e sugestões", 0, "text"),
+    "support_reports_channel_id": ("Suporte e aprovações", 0, "text"),
+    "clan_recruitment_channel_id": ("Painel de clãs — recrutamento", 0, "text"),
+    "clan_ranking_channel_id": ("Painel de clãs — ranking", 0, "text"),
+    "clan_events_channel_id": ("Painel de clãs — eventos", 0, "text"),
+    "bot_logs_channel_id": ("Logs e auditoria — bots", 0, "text"),
+    "clan_audit_channel_id": ("Logs e auditoria — clãs", 0, "text"),
 }
 
 CATEGORY_ALIASES = {
-    "COMECE AQUI": "🔥・PORTÕES DO SANTUÁRIO",
-    "QUASE PRO": "🎬・QUASE PRO",
-    "COMUNIDADE": "🏰・PRAÇA DOS MACULADOS",
-    "UNIVERSO SOULSLIKE": "⚔️・TERRAS SOULSLIKE",
-    "SISTEMAS SOULSBOT": "🏆・COLISEU DAS CINZAS",
-    "CATÁLOGO E OFERTAS": "📚・ARQUIVO DO VIAJANTE",
-    "VOZ": "🔊・FOGUEIRAS DA COMUNIDADE",
-    "EQUIPE": "🔒・BASTIDORES DA ORDEM",
-    "CLÃS": "🛡️・SALÃO DOS JURAMENTOS",
+    "COMECE AQUI": "👋・INÍCIO",
+    "QUASE PRO": "📣・QUASE PRO",
+    "COMUNIDADE": "💬・COMUNIDADE",
+    "PRAÇA DOS MACULADOS": "💬・COMUNIDADE",
+    "UNIVERSO SOULSLIKE": "🎮・SOULSLIKE",
+    "TERRAS SOULSLIKE": "🎮・SOULSLIKE",
+    "SISTEMAS SOULSBOT": "🏆・PROGRESSÃO E CLÃS",
+    "COLISEU DAS CINZAS": "🏆・PROGRESSÃO E CLÃS",
+    "CATÁLOGO E OFERTAS": "📚・CATÁLOGO",
+    "ARQUIVO DO VIAJANTE": "📚・CATÁLOGO",
+    "VOZ": "🔊・VOZ",
+    "FOGUEIRAS DA COMUNIDADE": "🔊・VOZ",
+    "EQUIPE": "🔒・EQUIPE",
+    "BASTIDORES DA ORDEM": "🔒・EQUIPE",
+    "CLÃS": "🏆・PROGRESSÃO E CLÃS",
+    "SALÃO DOS JURAMENTOS": "🏆・PROGRESSÃO E CLÃS",
+    "ORÁCULO DO SANTUÁRIO": "💬・COMUNIDADE",
+}
+
+# This set includes old category titles and canonical names so duplicate old categories
+# can be archived privately after a confirmed reorganization. Nothing is deleted.
+LEGACY_CATEGORY_NAMES = {
+    "comece-aqui", "portoes-do-santuario", "quase-pro", "comunidade", "praca-dos-maculados",
+    "universo-soulslike", "terras-soulslike", "sistemas-soulsbot", "coliseu-das-cinzas",
+    "catalogo-e-ofertas", "arquivo-do-viajante", "oraculo-do-santuario", "clas", "salao-dos-juramentos",
+    "voz", "fogueiras-da-comunidade", "equipe", "bastidores-da-ordem",
+    "inicio", "soulslike", "catalogo", "progressao-e-clas",
 }
 
 
 def normalize_name(value: str) -> str:
-    """Normaliza nomes para comparação de aliases sem depender de acentos."""
+    """Normaliza nomes para comparação de aliases sem depender de acentos ou emojis."""
     import unicodedata
     value = str(value or "").split("・", 1)[-1].strip().casefold()
     value = "".join(ch for ch in unicodedata.normalize("NFKD", value) if not unicodedata.combining(ch))
     return "-".join("".join(ch if ch.isalnum() else " " for ch in value).split())
+
+
+def legacy_channel_names() -> set[str]:
+    names = set()
+    for _category, _key, _aliases, channels in ORGANIZATION:
+        for channel_name, _kind, _setting, aliases, _access in channels:
+            names.add(normalize_name(channel_name))
+            names.update(normalize_name(alias) for alias in aliases)
+    return names
 
 
 def validate_role_palette() -> bool:
@@ -320,3 +278,15 @@ def validate_role_palette() -> bool:
 
 def count_channels() -> int:
     return sum(len(channels) for _name, _key, _aliases, channels in ORGANIZATION)
+
+
+def category_access_mode(category_key: str) -> str:
+    """Retorna 'entry', 'staff' ou 'verified' conforme a política de acesso."""
+    if category_key == ENTRY_CATEGORY_KEY:
+        return "entry"
+    if category_key == STAFF_CATEGORY_KEY:
+        return "staff"
+    return "verified"
+
+
+CATEGORY_KEYS = {key: name for name, key, _aliases, _channels in ORGANIZATION}

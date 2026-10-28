@@ -7,7 +7,7 @@ Compilação:
 
 Testes automatizados:
   python -m unittest discover -s tests -v
-  Resultado: 47 testes aprovados (OK)
+  Resultado: 49 testes aprovados (OK)
 
 Cobertura adicionada para hierarquia:
   - Ordem da equipe definida como Fundador > Administrador > Moderador > Suporte > Desenvolvedor.
@@ -15,10 +15,12 @@ Cobertura adicionada para hierarquia:
   - Hierarquia de clãs: Líder > Oficial > Membro.
   - Comunidade: Criador/Aliado > Membro > Recém-chegado.
   - A ordenação automática exclui cargos de equipe porque o bot não pode movê-los acima do próprio cargo.
-  - A lista de cargos que o bot pode ordenar abaixo de si contém 29 cargos funcionais e não inclui a equipe.
-  - As cores dos 34 cargos continuam únicas.
+  - A lista de cargos que o bot pode ordenar abaixo de si contém 26 cargos funcionais e não inclui a equipe.
+  - As cores dos 31 cargos continuam únicas.
 
 Limitações da validação:
   - Não foi possível fazer login real na API do Discord nesta execução.
   - A hierarquia dos cinco cargos de equipe deve ser movida manualmente para cima do cargo real do bot; o Discord não permite que o bot faça isso por API.
   - Depois de mover os cargos manualmente, execute /adm novamente para validar e reorganizar os cargos funcionais abaixo do bot.
+
+Validação adicional na estrutura comunitária: 8 categorias, 28 canais planejados, 31 cargos com cores únicas e categoria de entrada em modo somente leitura para membros não verificados.

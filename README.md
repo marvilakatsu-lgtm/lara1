@@ -73,7 +73,7 @@ Os comandos existentes do catálogo foram movidos para a aplicação principal. 
 
 ## Sistema de Clãs — Salão dos Juramentos
 
-Ao aplicar a organização pelo `/adm`, o bot publica/atualiza o painel persistente **Salão dos Juramentos** em `⚔️・painel-de-clãs`. Recursos principais:
+Ao aplicar a organização pelo `/adm`, o bot publica/atualiza o painel persistente **Salão dos Juramentos** em `🛡️・clãs`. Recursos principais:
 
 - Um clã criado por usuário e servidor, mesmo após encerramento; um vínculo de clã ativo por usuário/servidor.
 - Limite de dez integrantes incluindo o líder, validado por transação e trigger SQLite.
@@ -87,107 +87,91 @@ A privacidade não é absoluta contra administradores do servidor ou cargos com 
 
 **A progressão competitiva dos clãs não concede XP/recompensas automáticas nesta versão.** O ranking de clãs é provisório (atividades marcadas como concluídas e tamanho do clã); regras definitivas de XP, recompensas e critérios de conclusão ainda precisam ser definidas antes de ativar uma disputa competitiva. A tela de atividades permite criá-las; uma interface de conclusão de atividades não está completa.
 
-## Estrutura Quase Pro — organização oficial
+## Estrutura Quase Pro — versão simplificada
 
-A opção `/adm` → Organização do servidor aplica **10 categorias e 63 canais**, na ordem abaixo. Canais existentes encontrados por nome/alias são reutilizados, renomeados e movidos; o histórico da mensagem permanece porque o canal não é excluído.
+O plano foi reduzido de **10 para 8 categorias** e de **63 para 28 canais planejados**, incluindo os canais privados da equipe. A meta é orientar a comunidade rapidamente, não criar um canal para cada recurso interno do bot. Destinos de automações semelhantes compartilham o mesmo canal, mantendo suas chaves de configuração separadas para compatibilidade.
 
-1. `🔥・PORTÕES DO SANTUÁRIO`: `📜・boas-vindas`, `📕・regras-do-reino`, `✅・verificação`, `📢・anúncios-importantes`, `🎭・escolha-seus-cargos`, `🧭・guia-do-servidor`.
-2. `🎬・QUASE PRO`: `📣・avisos-do-canal`, `🎥・novos-vídeos`, `🔴・lives-ao-vivo`, `💡・sugestões-de-vídeos`, `🗳️・votações-da-comunidade`, `🎬・bastidores-do-quase-pro`.
-3. `🏰・PRAÇA DOS MACULADOS`: `💬・bate-papo`, `👋・apresente-se`, `😂・memes-do-reino`, `📸・prints-e-clipes`, `🤝・procurando-jogadores`, `🎮・outros-jogos` (texto), `💭・sugestões-do-servidor`.
-4. `⚔️・TERRAS SOULSLIKE`: `🌳・elden-ring`, `🔥・dark-souls`, `🛡️・dark-souls-ii`, `⚔️・dark-souls-iii`, `🩸・bloodborne`, `🥷・sekiro`, `👑・demon-souls`, `🦾・lies-of-p`, `🌑・nightreign`, `🗡️・builds-e-armas`, `💀・chefes-e-estratégias`, `🏆・runs-e-desafios`, `📖・lore-e-teorias`.
-5. `🏆・COLISEU DAS CINZAS`: `🏟️・hall-do-coliseu`, `📊・ranking-de-zerados`, `💎・hall-das-platinas`, `🎖️・perfis-e-patentes`, `🔥・santuários`, `📜・runs-registradas`, `🥇・conquistas-da-comunidade`.
-6. `📚・ARQUIVO DO VIAJANTE`: `🎮・catálogo-de-jogos`, `🧩・catálogo-de-mods`, `📥・envio-de-mods`, `📰・notícias-gamer`, `🎁・jogos-grátis`, `💰・promoções-gamer`.
-7. `🤖・ORÁCULO DO SANTUÁRIO`: `🧠・pergunte-à-ia`, `📘・central-de-ajuda`, `🎫・abrir-suporte`.
-8. `🛡️・SALÃO DOS JURAMENTOS`: `⚔️・painel-de-clãs`, `📜・recrutamento-de-clãs`, `🏅・ranking-de-clãs`, `📅・eventos-de-clãs`.
-9. `🔊・FOGUEIRAS DA COMUNIDADE` (voz): `🔥・papo-livre`, `🤝・coop-souls`, `⚔️・arena-pvp`, `🎮・outros-jogos`, `🎙️・sala-de-eventos`.
-10. `🔒・BASTIDORES DA ORDEM` (privada): `💬・chat-da-equipe`, `🛡️・logs-de-moderação`, `🤖・logs-dos-bots`, `⚙️・comandos-adm`, `🎫・relatórios-de-suporte`, `📋・auditoria-de-clãs`.
+1. **`👋・INÍCIO`** — `👋・boas-vindas`, `📜・regras`, `✅・verificação`.
+2. **`📣・QUASE PRO`** — `📣・avisos-e-vídeos`, `🔴・lives`, `💡・conteúdo-e-votações`.
+3. **`💬・COMUNIDADE`** — `💬・chat-geral`, `😂・memes-e-clipes`, `🤝・procurando-jogadores`, `🎮・outros-jogos`, `💭・ajuda-e-sugestões`, `🎭・cargos-de-interesse`.
+4. **`🎮・SOULSLIKE`** — `🌳・elden-ring`, `🔥・dark-souls`, `🌑・outros-soulslikes`, `🗡️・builds-e-chefes`, `🏆・runs-e-desafios`.
+5. **`📚・CATÁLOGO`** — `📚・jogos-e-mods`, `🎁・ofertas-e-notícias`.
+6. **`🏆・PROGRESSÃO E CLÃS`** — `🏅・perfis-e-conquistas`, `⚔️・coliseu-e-desafios`, `🛡️・clãs`.
+7. **`🔊・VOZ`** — `🔊・papo-livre`, `🎮・coop-e-jogos`, `🎙️・eventos`.
+8. **`🔒・EQUIPE`** (privada) — `💬・chat-da-equipe`, `📋・logs-e-auditoria`, `🎫・suporte-e-aprovações`.
 
-A aplicação publica/atualiza o painel de verificação em `✅・verificação`, o painel de escolha de cargos, os painéis do catálogo de jogos/mods e o Salão dos Juramentos, desde que os canais existam e o bot tenha permissão para enviar mensagens.
+### Como os canais foram consolidados
 
-### Bloqueio de acesso até a verificação
+- Avisos gerais e notificações de novos vídeos compartilham `📣・avisos-e-vídeos`; lives continuam separadas para não misturar notificações de início de transmissão.
+- Catálogo de jogos, catálogo de mods e envio de mods usam painéis separados no mesmo `📚・jogos-e-mods`.
+- Jogos gratuitos, promoções e notícias compartilham `🎁・ofertas-e-notícias`.
+- Perfis, jogos concluídos e platinas compartilham `🏅・perfis-e-conquistas`; Coliseu e runs/desafios compartilham `⚔️・coliseu-e-desafios`.
+- A descoberta, o recrutamento, o ranking e os eventos de clãs são acessados pelo painel permanente em `🛡️・clãs`; cada clã mantém sua própria categoria privada, com conversa, anúncios, estratégias e voz.
+- Ajuda, perguntas ao bot e sugestões ficam centralizadas em `💭・ajuda-e-sugestões`; os comandos slash continuam disponíveis nas áreas onde o membro tem permissão.
 
-A categoria `🔥・PORTÕES DO SANTUÁRIO` fica visível a todos para que novos membros possam ler regras e usar o botão em `✅・verificação`. As outras oito categorias públicas recebem `@everyone: view_channel=False` e `🟢・Membro: view_channel=True`; o bot e cargos autorizados de equipe também têm acesso explícito. A categoria `🔒・BASTIDORES DA ORDEM` mantém ACL privada de equipe. A verificação só libera as áreas restantes quando o bot consegue atribuir o cargo Membro. Antes de aplicar, confira se o cargo do bot está acima de `🟢・Membro` e se tem `Gerenciar Canais` e `Gerenciar Cargos`. Pessoas com `Administrador` no Discord podem ignorar overwrites de canal, como esperado.
+A aplicação reutiliza canais encontrados por nome/alias e preserva as mensagens ao renomear/mover canais. Canais antigos redundantes que sobrarem após a consolidação são movidos para `🗄️・ARQUIVO ANTIGO`, visível apenas à equipe; categorias antigas conhecidas são ocultadas. **Nenhum canal ou mensagem é excluído.** A equipe deve revisar o resultado após a execução, pois alterações de permissões não têm rollback automático garantido.
 
-## Cargos, paleta e patentes por XP
+### Verificação e acesso
 
-A organização cria/atualiza 34 cargos gerenciados pelo projeto com **34 cores hexadecimais únicas**. Os cargos de fundador, administrador e moderador recebem os perfis definidos no código; suporte, desenvolvedor, clãs, comunidade, interesses e etiquetas técnicas não recebem permissões administrativas.
+`👋・INÍCIO` é a única categoria visível antes da verificação e é somente leitura para não verificados. O novo membro lê as regras e clica no botão de verificação em `✅・verificação`; o bot atribui `🟢・Membro`. As demais categorias públicas ficam ocultas para `@everyone` e só abrem para o cargo verificado e a equipe autorizada. `🔒・EQUIPE` permanece privada. O bot precisa de **Gerenciar Canais** e **Gerenciar Cargos**, e seu cargo precisa estar acima do cargo `🟢・Membro`.
 
-### Hierarquia correta — de cima para baixo
+## Cargos, hierarquia e cores
 
-1. `👑・Fundador`
-2. `⚙️・Administrador`
-3. `🛡️・Moderador`
-4. `🎫・Equipe de Suporte`
-5. `🔧・Desenvolvedor`
-6. **Cargo real da aplicação/bot no Discord** — fronteira da hierarquia; deve ficar abaixo da equipe e acima dos cargos que o bot administra.
-7. **Patentes, do nível mais alto ao inicial:** `🌟・Sentinela Imortal` (nível 100), `🏆・Lenda do Coliseu` (75), `🌌・Senhor das Almas` (50), `🔥・Executor Sombrio` (40), `🌑・Arauto da Ruína` (30), `🪶・Guardião das Cinzas` (20), `⚔️・Cavaleiro do Abismo` (15), `💀・Caçador de Almas` (10), `🩸・Guerreiro Caído` (5), `🪨・Cinzas Novatas` (1).
-8. Cargos de clã: `👑・Líder de Clã` > `🗡️・Oficial de Clã` > `⚔️・Membro de Clã`.
-9. Comunidade: `📺・Criador de Conteúdo` e `🤝・Aliado` > `🟢・Membro` > `🌱・Recém-chegado`.
-10. Interesses/notificações e etiquetas técnicas ficam na base.
+O plano cria/atualiza **31 cargos funcionais com cores distintas**. A hierarquia correta é:
 
-**Limite da API do Discord:** um bot não pode mover cargos para cima do seu maior cargo nem editar cargos acima dele. Na primeira aplicação, o bot padroniza os cargos e ordena automaticamente os cargos funcionais abaixo de si; você precisa mover manualmente os cinco cargos de equipe para cima do cargo real do bot, nesta ordem exata: Fundador > Administrador > Moderador > Equipe de Suporte > Desenvolvedor. Não atribua cargos privilegiados a ninguém até terminar esse passo. Execute `/adm` novamente para validar a hierarquia. A seção Diagnóstico também sinaliza cargos funcionais posicionados no lado errado do cargo do bot.
+1. Equipe, de cima para baixo: `👑・Fundador` → `⚙️・Administrador` → `🛡️・Moderador` → `🎫・Equipe de Suporte` → `🔧・Desenvolvedor`.
+2. Cargo real do bot — abaixo da equipe e acima dos cargos funcionais que o bot precisa administrar.
+3. Patentes Soulslike, do nível mais alto para o inicial.
+4. Cargos internos de clãs, sem permissões administrativas do servidor.
+5. Cargos de comunidade (`Criador de Conteúdo`, `Aliado`, `Membro`, `Recém-chegado`).
+6. Cargos de interesse e notificações.
 
-A hierarquia de patentes agora é ordenada pelo nível mínimo em ordem decrescente, não pela ordem de criação. Assim, `Sentinela Imortal` fica acima das demais patentes, enquanto `Cinzas Novatas` fica abaixo delas. O XP e os requisitos existentes não são alterados.
+O bot pode organizar automaticamente os cargos funcionais abaixo dele, mas não pode mover a equipe para cima do seu próprio cargo. Na primeira aplicação, coloque manualmente os cinco cargos de equipe acima do cargo real do bot na ordem indicada e execute `/adm` novamente para validar.
 
-### Paleta completa dos 34 cargos
+### Patentes e XP
 
-| Cargo | Grupo | Cor |
-|---|---|---:|
-| 👑・Fundador | staff | `#F1C40F` |
-| ⚙️・Administrador | staff | `#E74C3C` |
-| 🛡️・Moderador | staff | `#3498DB` |
-| 🎫・Equipe de Suporte | staff | `#9B59B6` |
-| 🔧・Desenvolvedor | staff | `#1ABC9C` |
-| 🌟・Sentinela Imortal | rank | `#F4D03F` |
-| 🏆・Lenda do Coliseu | rank | `#BA4A00` |
-| 🌌・Senhor das Almas | rank | `#D35400` |
-| 🔥・Executor Sombrio | rank | `#17202A` |
-| 🌑・Arauto da Ruína | rank | `#6C3483` |
-| 🪶・Guardião das Cinzas | rank | `#566573` |
-| ⚔️・Cavaleiro do Abismo | rank | `#2E4053` |
-| 💀・Caçador de Almas | rank | `#7B241C` |
-| 🩸・Guerreiro Caído | rank | `#8E6E53` |
-| 🪨・Cinzas Novatas | rank | `#7F8C8D` |
-| 👑・Líder de Clã | clan | `#AF7AC5` |
-| 🗡️・Oficial de Clã | clan | `#4A235A` |
-| ⚔️・Membro de Clã | clan | `#0E6251` |
-| 📺・Criador de Conteúdo | community | `#5DADE2` |
-| 🤝・Aliado | community | `#B7950B` |
-| 🟢・Membro | community | `#27AE60` |
-| 🌱・Recém-chegado | community | `#82E0AA` |
-| 🎮・Elden Ring | interest | `#1F618D` |
-| 🔥・Dark Souls | interest | `#884EA0` |
-| 🩸・Bloodborne | interest | `#117864` |
-| 🥷・Sekiro | interest | `#CD6155` |
-| 🦾・Lies of P | interest | `#A93226` |
-| 🌑・Nightreign | interest | `#2874A6` |
-| 📹・Avisos de vídeos | interest | `#239B56` |
-| 🔴・Avisos de lives | interest | `#CA6F1E` |
-| 🏆・Eventos e desafios | interest | `#616A6B` |
-| 🤖・Soulsbot | technical | `#A3E4D7` |
-| 📚・Bot Catálogo | technical | `#F5B7B1` |
-| ⚙️・Bot Organizador | technical | `#FAD7A0` |
+Os nomes e critérios existentes no Soulsbot são preservados. O cargo é sincronizado com o XP/nível registrado; a organização não recalcula XP nem concede recompensas adicionais.
 
-Os cargos de interesse configurados no painel `🎭・escolha-seus-cargos` são: Elden Ring, Dark Souls, Bloodborne, Sekiro, Lies of P, Nightreign, avisos de vídeos, avisos de lives e eventos/desafios. O painel pode adicionar/remover esses cargos; patentes não são selecionadas manualmente.
+| Nível mínimo | Patente | Cor |
+|---:|---|---:|
+| 1 | `🪨・Cinzas Novatas` | `#7F8C8D` |
+| 5 | `🩸・Guerreiro Caído` | `#8E6E53` |
+| 10 | `💀・Caçador de Almas` | `#7B241C` |
+| 15 | `⚔️・Cavaleiro do Abismo` | `#2E4053` |
+| 20 | `🪶・Guardião das Cinzas` | `#566573` |
+| 30 | `🌑・Arauto da Ruína` | `#6C3483` |
+| 40 | `🔥・Executor Sombrio` | `#17202A` |
+| 50 | `🌌・Senhor das Almas` | `#D35400` |
+| 75 | `🏆・Lenda do Coliseu` | `#BA4A00` |
+| 100 | `🌟・Sentinela Imortal` | `#F4D03F` |
 
-O vínculo entre nível e patente usa os critérios que já existiam no Soulsbot, sem alterar XP:
+### Cores dos demais cargos
 
-| Nível mínimo | Cargo de patente |
-|---:|---|
-| 1 | `🪨・Cinzas Novatas` |
-| 5 | `🩸・Guerreiro Caído` |
-| 10 | `💀・Caçador de Almas` |
-| 15 | `⚔️・Cavaleiro do Abismo` |
-| 20 | `🪶・Guardião das Cinzas` |
-| 30 | `🌑・Arauto da Ruína` |
-| 40 | `🔥・Executor Sombrio` |
-| 50 | `🌌・Senhor das Almas` |
-| 75 | `🏆・Lenda do Coliseu` |
-| 100 | `🌟・Sentinela Imortal` |
+| Cargo | Cor |
+|---|---:|
+| `👑・Fundador` | `#F1C40F` |
+| `⚙️・Administrador` | `#E74C3C` |
+| `🛡️・Moderador` | `#3498DB` |
+| `🎫・Equipe de Suporte` | `#9B59B6` |
+| `🔧・Desenvolvedor` | `#1ABC9C` |
+| `👑・Líder de Clã` | `#AF7AC5` |
+| `🗡️・Oficial de Clã` | `#4A235A` |
+| `⚔️・Membro de Clã` | `#0E6251` |
+| `📺・Criador de Conteúdo` | `#5DADE2` |
+| `🤝・Aliado` | `#B7950B` |
+| `🟢・Membro` | `#27AE60` |
+| `🌱・Recém-chegado` | `#82E0AA` |
+| `🎮・Elden Ring` | `#1F618D` |
+| `🔥・Dark Souls` | `#884EA0` |
+| `🩸・Bloodborne` | `#117864` |
+| `🥷・Sekiro` | `#CD6155` |
+| `🦾・Lies of P` | `#A93226` |
+| `🌑・Nightreign` | `#2874A6` |
+| `📹・Avisos de vídeos` | `#239B56` |
+| `🔴・Avisos de lives` | `#CA6F1E` |
+| `🏆・Eventos e desafios` | `#616A6B` |
 
-Ao receber XP e ao entrar no servidor, o Soulsbot calcula o nível e sincroniza o cargo correto; ao aplicar a estrutura, tenta também reconciliar os usuários já registrados no banco. Isso depende de o cargo estar abaixo do cargo mais alto do bot e de `Gerenciar Cargos` estar habilitado.
-
-As três etiquetas técnicas (`🤖・Soulsbot`, `📚・Bot Catálogo`, `⚙️・Bot Organizador`) são criadas sem permissões. Como o código integrado agora opera com **uma única identidade de bot Discord**, essas etiquetas não isolam permissões por módulo nem representam três contas distintas.
+As três antigas etiquetas decorativas de bot (`Soulsbot`, `Bot Catálogo`, `Bot Organizador`) não são mais criadas, pois os módulos usam uma única identidade de bot Discord. Se essas etiquetas já existirem no servidor, esta aplicação não as exclui automaticamente: confira se não têm membros ou overwrites associados antes de removê-las manualmente.
 
 ## Comandos Soulsbot preservados
 
@@ -224,4 +208,4 @@ Os testes cobrem regras centrais de banco, progressão, cartões, isolamento de 
 - O aviso HTTP 404 do feed do YouTube é separado do erro do catálogo. O bot continua tentando o fallback pela API quando a chave está configurada. O log agora esclarece que o 404 pode ser temporário ou indicar `YOUTUBE_CHANNEL_ID` incorreto e limita avisos repetidos a um por 15 minutos.
 - Se o RSS falhar e `YOUTUBE_API_KEY` não estiver configurada, o bot registra essa limitação explicitamente. O ID deve ser o ID canônico do canal (`UC` seguido de 22 caracteres), não o nome `@handle` ou uma URL.
 
-Validação local após a correção de hierarquia dos cargos: `compileall` concluído e 47 testes unitários aprovados. Isso não substitui o teste de interação com o bot conectado ao Discord nem a confirmação da API do YouTube com as credenciais da hospedagem.
+Validação local da versão comunitária simplificada: `compileall` concluído e 49 testes unitários aprovados. Isso não substitui o teste de interação com o bot conectado ao Discord nem a confirmação da API do YouTube com as credenciais da hospedagem.
