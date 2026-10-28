@@ -97,7 +97,7 @@ Nenhum dos dois ZIPs incluía o banco principal, `jogos.db`, imagens, capas ou b
 | Verificação | Resultado |
 |---|---|
 | `python -m compileall -q bot.py config.py database.py settings_store.py cogs tests` | Passou |
-| `python -m unittest discover -s tests -v` | 49 testes passaram |
+| `python -m unittest discover -s tests -v` | 58 testes passaram na versão atual com limpeza destrutiva opcional |
 | Isolamento das configurações por servidor | Coberto por teste unitário |
 | Migração versionada, adição de coluna legada e snapshot pré-migração | Coberto por teste unitário |
 | Limite máximo de dez integrantes / exclusividade de vínculo | Coberto por teste de SQLite e trigger |
@@ -139,3 +139,10 @@ O fluxo de `/adm` não passa `None` a `guild.create_category(overwrites=...)`: c
 - A API do Discord impede um bot de ordenar ou editar cargos no mesmo nível ou acima da sua maior role. Por isso, quando os cargos de equipe recém-criados ainda estiverem abaixo do bot, o `/adm` informa que o administrador precisa movê-los manualmente em **Configurações do servidor → Cargos** e não deve atribuí-los a membros antes de concluir o ajuste. Após mover os cargos, executar `/adm` novamente valida a ordem. O diagnóstico também detecta cargos funcionais acima do bot ou fora da sequência.
 - O mapeamento de IDs de cargos é persistido inclusive quando um cargo acima do bot não pode ser editado, evitando perder a associação ao reabrir o painel.
 - Foram adicionados quatro testes da ordem da equipe, patentes descendentes, papéis de clã/comunidade e exclusão dos cargos de equipe da ordenação automática. Validação na etapa de hierarquia: `compileall` e 47 testes aprovados; a versão comunitária atual tem 49 testes aprovados. Não houve teste autenticado no Discord.
+
+
+## Atualização posterior — limpeza destrutiva opcional (28/10/2026)
+
+A versão atual adiciona uma ação separada em `/adm` para inventariar e, após confirmação do dono do servidor, excluir canais/categorias/cargos fora da estrutura oficial. A aplicação normal continua sem apagar. A ação destrutiva exige que os 8 grupos e os 28 canais-alvo existam, bloqueia referências persistentes não resolvidas, preserva clãs ativos/degradados, cargos gerenciados e cargos utilizados pelo bot, produz um pacote com snapshots de bancos e metadados e exige a frase `APAGAR RESTO`. O backup não consegue restaurar histórico de mensagens, threads ou anexos do Discord.
+
+Validação atual: compilação Python aprovada e 58 testes passaram. Como o ambiente não possui `discord.py` nem credenciais da guild, o fluxo de exclusão não foi testado contra a API real; faça a primeira execução num servidor de homologação.

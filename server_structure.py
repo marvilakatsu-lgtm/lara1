@@ -2,8 +2,8 @@
 
 A organização é orientada ao uso diário: menos categorias, canais combinados quando
 compartilham a mesma finalidade e destinos de bot associados ao mesmo canal quando
-isso facilita a navegação. Canais e mensagens antigos nunca são excluídos; os canais
-obsoletos conhecidos são movidos para um arquivo privado durante a aplicação confirmada.
+isso facilita a navegação. A aplicação normal preserva histórico e arquiva canais redundantes;
+uma etapa destrutiva opcional separada pode apagar recursos excedentes após backup e confirmação.
 """
 from __future__ import annotations
 
@@ -241,8 +241,9 @@ CATEGORY_ALIASES = {
     "ORÁCULO DO SANTUÁRIO": "💬・COMUNIDADE",
 }
 
-# This set includes old category titles and canonical names so duplicate old categories
-# can be archived privately after a confirmed reorganization. Nothing is deleted.
+# This set includes old category titles and canonical names so the normal reorganization
+# can archive known legacy categories. A separate owner-only cleanup flow can delete them
+# after an explicit inventory, a metadata/database backup, and a typed confirmation.
 LEGACY_CATEGORY_NAMES = {
     "comece-aqui", "portoes-do-santuario", "quase-pro", "comunidade", "praca-dos-maculados",
     "universo-soulslike", "terras-soulslike", "sistemas-soulsbot", "coliseu-das-cinzas",

@@ -109,7 +109,7 @@ O plano foi reduzido de **10 para 8 categorias** e de **63 para 28 canais planej
 - A descoberta, o recrutamento, o ranking e os eventos de clãs são acessados pelo painel permanente em `🛡️・clãs`; cada clã mantém sua própria categoria privada, com conversa, anúncios, estratégias e voz.
 - Ajuda, perguntas ao bot e sugestões ficam centralizadas em `💭・ajuda-e-sugestões`; os comandos slash continuam disponíveis nas áreas onde o membro tem permissão.
 
-A aplicação reutiliza canais encontrados por nome/alias e preserva as mensagens ao renomear/mover canais. Canais antigos redundantes que sobrarem após a consolidação são movidos para `🗄️・ARQUIVO ANTIGO`, visível apenas à equipe; categorias antigas conhecidas são ocultadas. **Nenhum canal ou mensagem é excluído.** A equipe deve revisar o resultado após a execução, pois alterações de permissões não têm rollback automático garantido.
+A aplicação normal reutiliza canais encontrados por nome/alias e preserva as mensagens ao renomear/mover canais. Canais antigos redundantes que sobrarem após a consolidação são movidos para `🗄️・ARQUIVO ANTIGO`, visível apenas à equipe; categorias antigas conhecidas são ocultadas. **O botão de aplicação normal não exclui canais.** Existe uma ação destrutiva separada, somente para o dono do servidor, descrita na seção abaixo.
 
 ### Verificação e acesso
 
@@ -183,6 +183,26 @@ A seção **Backup e restauração** do `/adm` gera um ZIP com snapshots SQLite 
 
 A interface de **restauração automática ainda não foi implementada**. Para restaurar: pare o bot, preserve cópia do estado atual, extraia os bancos do ZIP para os caminhos corretos, confira permissões de arquivo e reinicie. Não sobrescreva bancos ativos com o processo em execução.
 
+
+## Limpeza destrutiva opcional de recursos antigos
+
+A exclusão total **não** faz parte do botão normal de reorganização. Só o dono do servidor pode iniciá-la por `/adm` → Organização do servidor → **Prévia de limpeza total**.
+
+1. Aplique primeiro a nova estrutura e confirme que todas as categorias e os 28 canais-alvo foram criados.
+2. Abra a prévia destrutiva e revise a lista/contagem de canais, categorias e cargos que estão fora da estrutura. O fluxo é bloqueado se faltarem recursos-alvo, se não for possível verificar os clãs ou se ainda houver referências persistentes a um recurso excedente.
+3. Escolha **Gerar backup e preparar exclusão**. O arquivo enviado inclui snapshots dos bancos de dados disponíveis e `server-state-and-deletion-manifest.json` com os metadados, permissões e a lista exata de recursos planejados para exclusão.
+4. Baixe e guarde o arquivo. Somente depois clique em **Confirmar apagamento** e digite exatamente `APAGAR RESTO`.
+
+A limpeza exclui canais fora das categorias/canais-alvo, categorias excedentes, e cargos não pertencentes à nova organização que o bot consiga administrar. Canais e categorias de clãs em estado ativo/degradado, cargos-alvo, `@everyone`, cargos gerenciados pelo Discord/integrações e cargos necessários ao próprio bot são preservados. Cargos acima do cargo mais alto do bot não podem ser apagados pela API e serão relatados.
+
+**Limite irreversível:** o backup preserva os bancos e metadados do servidor, mas não consegue restaurar histórico de mensagens, threads, anexos do Discord ou recriar IDs antigos. A exclusão de cargos remove esses cargos dos membros. Revise a lista antes de confirmar.
+
+### Solução de problemas — botão “Prévia de limpeza total” não responde
+
+A prévia precisa percorrer canais, categorias, cargos, permissões e configurações persistidas. O callback anterior fazia esse trabalho antes de confirmar a interação; se passasse do prazo curto de resposta do Discord, a interface podia mostrar “Esta interação falhou” ou parecer não fazer nada. O callback agora confirma a interação imediatamente (`defer`), monta o plano em seguida e atualiza a mensagem quando termina. Falhas inesperadas são registradas no log e exibidas ao administrador; nenhum recurso é excluído ao gerar a prévia. O painel da organização também usa timeout de 15 minutos.
+
+Para aplicar a correção: atualize `cogs/admin.py` ou instale o ZIP corrigido, reinicie o bot e abra **um novo `/adm`** antes de clicar. Painéis antigos podem ter expirado; reabrir `/adm` cria um painel novo. **Somente o dono do servidor** pode abrir a prévia destrutiva. Se ainda falhar, consulte os logs por `Não foi possível gerar a prévia de limpeza` e envie o traceback completo.
+
 ## Testes e validação
 
 Execute os testes unitários offline:
@@ -197,7 +217,7 @@ Os testes cobrem regras centrais de banco, progressão, cartões, isolamento de 
 ## Limitações conhecidas desta entrega
 
 - Não foi possível realizar login real no Discord nem testar interações end-to-end nesta sessão, por falta de token/permissões e indisponibilidade das dependências no ambiente de execução.
-- O organizador renomeia e move canais correspondentes por nome/aliases, e altera overwrites das categorias públicas e privadas para implementar o plano. Ele nunca exclui canais ou mensagens. Mudanças de permissões no Discord não possuem rollback automático garantido; faça uma revisão do plano e backup dos bancos antes de aplicar.
+- A aplicação normal renomeia e move canais correspondentes por nome/aliases, e altera overwrites das categorias públicas e privadas para implementar o plano. Ela não exclui canais. A ação opcional de limpeza destrutiva está restrita ao dono do servidor, gera backup e exige confirmação textual; ela remove o histórico dos canais que apaga e não possui rollback de mensagens.
 - A centralização de ativações/desativações já bloqueia novas interações do Sistema de Clãs. Algumas telas de módulo são informativas; desligamento integral por flag de todos os módulos ainda não está conectado a todos os listeners/tarefas.
 - Ainda há etapas que exigem validação real de permissões, intents e credenciais externas no Developer Portal/hospedagem.
 
@@ -208,4 +228,10 @@ Os testes cobrem regras centrais de banco, progressão, cartões, isolamento de 
 - O aviso HTTP 404 do feed do YouTube é separado do erro do catálogo. O bot continua tentando o fallback pela API quando a chave está configurada. O log agora esclarece que o 404 pode ser temporário ou indicar `YOUTUBE_CHANNEL_ID` incorreto e limita avisos repetidos a um por 15 minutos.
 - Se o RSS falhar e `YOUTUBE_API_KEY` não estiver configurada, o bot registra essa limitação explicitamente. O ID deve ser o ID canônico do canal (`UC` seguido de 22 caracteres), não o nome `@handle` ou uma URL.
 
-Validação local da versão comunitária simplificada: `compileall` concluído e 49 testes unitários aprovados. Isso não substitui o teste de interação com o bot conectado ao Discord nem a confirmação da API do YouTube com as credenciais da hospedagem.
+Validação local da versão comunitária simplificada: `compileall` concluído e 60 testes unitários aprovados. Isso não substitui o teste de interação com o bot conectado ao Discord nem a confirmação da API do YouTube com as credenciais da hospedagem.
+
+## Limpeza destrutiva: referências legadas dos cargos de bots
+
+O sistema integrado usa uma única identidade de bot no Discord. As configurações `role_bot_catalog_id` e `role_bot_soulsbot_id` são referências antigas à arquitetura anterior de dois bots e não são consumidas pelos módulos atuais. Na prévia de limpeza, se essas chaves apontarem especificamente para os cargos `Bot Catálogo` e `Soulsbot` que foram identificados como excedentes, elas aparecem como migração de configuração, em vez de bloquear a operação. Após nova validação do plano e durante a execução confirmada pelo dono, essas duas chaves são removidas com registro de auditoria antes de tentar excluir os cargos. Outras referências de cargos continuam bloqueando a exclusão.
+
+A alteração não remove nada durante a prévia. O backup e o manifesto devem ser revisados, pois a exclusão de canais não restaura histórico, threads nem anexos hospedados pelo Discord.

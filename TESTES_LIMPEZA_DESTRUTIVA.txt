@@ -1,0 +1,11 @@
+Quase Pro — verificação da implementação de limpeza destrutiva
+Data: 2026-10-28
+
+Compilação Python de todos os arquivos .py: PASSOU
+python -m unittest discover -s tests -v: 60 testes aprovados
+
+A suíte inclui 10 testes estáticos de segurança para a limpeza: confirmação textual, autorização exclusiva do dono, backup antes da ação final, preservação de clãs ativos, preservação de cargos de sistema/bot, referências pendentes, permissões de cargos em recursos preservados e exclusão de categorias somente depois de esvaziadas, confirmação imediata da interação antes de consultas longas, e timeout estendido do painel de organização.
+
+Limitação: o ambiente não possui discord.py instalado e não tem credenciais do servidor; os testes novos da limpeza verificam o código e os guardrails, não simulam todas as interações ou a API real do Discord. Faça a primeira execução num servidor de homologação.
+
+Correção adicional do incidente 28/10/2026: o botão “Prévia de limpeza total” agora chama defer antes de montar o inventário, atualiza a resposta original ao terminar, regista exceções e apresenta mensagem de falha ao administrador. A prévia não apaga recursos. O painel de organização tem timeout de 15 minutos; painéis antigos devem ser reabertos por `/adm`.

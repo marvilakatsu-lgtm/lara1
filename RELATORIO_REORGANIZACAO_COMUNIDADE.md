@@ -48,12 +48,12 @@ A equipe fica acima do cargo real do bot. O bot ordena os cargos funcionais abai
 
 `👋・INÍCIO` é visível aos recém-chegados, mas somente leitura para `@everyone`. O botão `Verificar-me` em `✅・verificação` atribui `🟢・Membro` e retira `🌱・Recém-chegado`. As outras seis categorias de uso comunitário exigem o cargo de membro verificado. `🔒・EQUIPE` e o arquivo antigo têm acesso restrito.
 
-Ao aplicar a reorganização, o bot reutiliza, renomeia e move canais correspondentes por nome/aliases. Canais redundantes reconhecidos são movidos para `🗄️・ARQUIVO ANTIGO`, e categorias legadas conhecidas são ocultadas. **A migração não apaga mensagens, canais, cargos ou bancos.** Ainda assim, permissões e posições são alterações reais no Discord; a primeira aplicação deve ser conferida num servidor de teste.
+Ao aplicar a reorganização normal, o bot reutiliza, renomeia e move canais correspondentes por nome/aliases. Canais redundantes reconhecidos são movidos para `🗄️・ARQUIVO ANTIGO`, e categorias legadas conhecidas são ocultadas. **A aplicação normal não apaga mensagens, canais, cargos ou bancos.** Uma ação destrutiva opcional, separada e exclusiva do dono do servidor, permite excluir os recursos fora da nova estrutura após inventário, backup e confirmação textual. Histórico de mensagens não pode ser restaurado pelo backup.
 
 ## Validação executada
 
 - `python -m compileall -q bot.py config.py database.py settings_store.py cogs tests server_structure.py levels.py`: **passou**.
-- `python -m unittest discover -s tests -v`: **49 testes passaram**.
+- `python -m unittest discover -s tests -v`: **58 testes passaram**.
 - Teste de estrutura: 8 categorias, 28 canais, 31 cargos com nomes/cores únicos.
 - Teste de regressão: categorias de entrada permitem leitura aos não verificados, mas bloqueiam envio de mensagens e criação de threads.
 
@@ -67,3 +67,10 @@ Ao aplicar a reorganização, o bot reutiliza, renomeia e move canais correspond
 4. Ajuste manualmente os cinco cargos de equipe acima do cargo do bot; mantenha o bot acima dos cargos funcionais.
 5. Abra `/adm` → **Organização do servidor**, revise a prévia e confirme.
 6. Teste verificação com uma conta nova, permissões de equipe, painéis de jogos/mods, notificações e fluxo de clãs antes de usar em produção.
+
+
+## Limpeza destrutiva opcional
+
+A prévia mostra canais, categorias e cargos excedentes, protege recursos de clãs ativos/degradados e cargos gerenciados/necessários ao bot, e bloqueia a operação se canais-alvo estiverem ausentes ou se houver referências persistentes não resolvidas. Antes da confirmação, o bot envia um ZIP com bancos disponíveis e um inventário dos IDs, nomes, posições, permissões e recursos planejados para exclusão. Só o dono pode concluir a operação digitando `APAGAR RESTO`.
+
+A API do Discord não fornece um mecanismo para restaurar o histórico de mensagens de canais apagados. Cargos deletados são removidos dos membros; cargos que estejam acima do bot ou gerenciados por integrações são preservados e reportados. Esta rotina não foi testada contra um servidor Discord real neste ambiente.
