@@ -81,6 +81,14 @@ class GameNewsCog(commands.Cog):
                 feed_id INTEGER NOT NULL,
                 visto_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )""")
+            # Histórico por servidor: evita que a publicação num servidor impeça os outros de receberem o item.
+            conn.execute("""CREATE TABLE IF NOT EXISTS news_seen_guild (
+                item_key TEXT NOT NULL,
+                feed_id INTEGER NOT NULL,
+                guild_id INTEGER NOT NULL,
+                visto_em TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY(item_key, guild_id)
+            )""")
             conn.execute("""CREATE TABLE IF NOT EXISTS news_config (
                 chave TEXT PRIMARY KEY,
                 valor TEXT
@@ -174,6 +182,49 @@ class GameNewsCog(commands.Cog):
         with self._connect() as conn:
             conn.execute("INSERT OR IGNORE INTO news_seen (item_key, feed_id) VALUES (?, ?)", (key, feed_id))
 
+    def _seen_for_guild(self, guild_id, key):
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT 1 FROM news_seen_guild WHERE item_key=? AND guild_id=?",
+                (key, int(guild_id)),
+            ).fetchone() is not None
+
+    def _mark_seen_for_guild(self, guild_id, feed_id, key):
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT OR IGNORE INTO news_seen_guild (item_key, feed_id, guild_id) VALUES (?, ?, ?)",
+                (key, int(feed_id), int(guild_id)),
+            )
+
+    async def _destinations(self):
+        """Retorna canais de notícias configurados por guild, com fallback legado só no servidor de origem."""
+        from settings_store import get_setting
+        destinations = []
+        legacy_id = self._get_config("channel_id")
+        legacy_channel = None
+        if legacy_id:
+            legacy_channel = self.bot.get_channel(int(legacy_id))
+            if legacy_channel is None:
+                try:
+                    legacy_channel = await self.bot.fetch_channel(int(legacy_id))
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                    legacy_channel = None
+        for guild in self.bot.guilds:
+            channel_id = await get_setting(self.bot, guild.id, "news_channel_id", 0)
+            channel = guild.get_channel(int(channel_id)) if channel_id else None
+            if channel is None and legacy_channel is not None and getattr(legacy_channel, "guild", None) and legacy_channel.guild.id == guild.id:
+                channel = legacy_channel
+            if channel is None and channel_id:
+                try:
+                    fetched = await self.bot.fetch_channel(int(channel_id))
+                    if getattr(fetched, "guild", None) and fetched.guild.id == guild.id:
+                        channel = fetched
+                except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
+                    channel = None
+            if channel is not None and getattr(channel, "guild", None) and channel.guild.id == guild.id and hasattr(channel, "send"):
+                destinations.append((guild.id, channel))
+        return destinations
+
     def _feed_initialised(self, feed_id):
         with self._connect() as conn:
             row = conn.execute("SELECT inicializado FROM news_feeds WHERE id=?", (feed_id,)).fetchone()
@@ -197,16 +248,8 @@ class GameNewsCog(commands.Cog):
 
     @tasks.loop(minutes=POLL_MINUTES)
     async def poll_news(self):
-        channel_id = self._get_config("channel_id")
-        if not channel_id:
-            return
-        channel = self.bot.get_channel(int(channel_id))
-        if channel is None:
-            try:
-                channel = await self.bot.fetch_channel(int(channel_id))
-            except (discord.NotFound, discord.Forbidden, discord.HTTPException, ValueError):
-                return
-        if not hasattr(channel, "send"):
+        destinations = await self._destinations()
+        if not destinations:
             return
         if self._session is None or self._session.closed:
             self._session = aiohttp.ClientSession()
@@ -216,23 +259,36 @@ class GameNewsCog(commands.Cog):
             except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as exc:
                 print(f"[news] Feed {feed['nome']} indisponível: {exc}")
                 continue
-            # Na primeira leitura, registra o conteúdo já existente para não despejar notícias antigas.
+            # Primeira leitura: não publica notícias antigas, mas grava a marca por servidor.
             if not self._feed_initialised(feed["id"]):
                 for item in items:
                     self._mark_seen(feed["id"], item["key"])
+                    for guild_id, _channel in destinations:
+                        self._mark_seen_for_guild(guild_id, feed["id"], item["key"])
                 self._set_feed_initialised(feed["id"])
                 continue
-            # RSS geralmente retorna os mais recentes primeiro; publica em ordem cronológica.
-            new_items = [item for item in items if not self._seen(item["key"])]
-            for item in reversed(new_items):
-                self._mark_seen(feed["id"], item["key"])
-                if not self._is_relevant(item):
+
+            for item in reversed(items):
+                # O registro global antigo protege a migração; itens novos são controlados por servidor.
+                legacy_seen = self._seen(item["key"])
+                if legacy_seen:
+                    # Se o item já foi visto globalmente antes desta versão, não reenviar.
                     continue
-                try:
-                    await self._publish(channel, feed["nome"], item)
-                except (discord.Forbidden, discord.HTTPException) as exc:
-                    print(f"[news] Falha ao publicar no Discord: {exc}")
-                    break
+                if not self._is_relevant(item):
+                    self._mark_seen(feed["id"], item["key"])
+                    continue
+                all_delivered = True
+                for guild_id, channel in destinations:
+                    if self._seen_for_guild(guild_id, item["key"]):
+                        continue
+                    try:
+                        await self._publish(channel, feed["nome"], item)
+                        self._mark_seen_for_guild(guild_id, feed["id"], item["key"])
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        all_delivered = False
+                        print(f"[news] Falha ao publicar em {guild_id}/#{channel.id}: {exc}")
+                if all_delivered and all(self._seen_for_guild(guild_id, item["key"]) for guild_id, _ in destinations):
+                    self._mark_seen(feed["id"], item["key"])
 
     @poll_news.before_loop
     async def before_poll_news(self):
@@ -244,7 +300,9 @@ class GameNewsCog(commands.Cog):
     @app_commands.checks.has_permissions(manage_guild=True)
     @app_commands.describe(canal="Canal de texto para receber notícias")
     async def noticias_canal(self, interaction: discord.Interaction, canal: discord.TextChannel):
-        self._set_config("channel_id", canal.id)
+        self._set_config("channel_id", canal.id)  # fallback legado para instalações antigas
+        from settings_store import set_setting
+        await set_setting(self.bot, interaction.guild.id, interaction.user.id, "news_channel_id", canal.id)
         await interaction.response.send_message(
             f"Canal de notícias configurado: {canal.mention}. A verificação ocorre a cada {POLL_MINUTES} minutos.",
             ephemeral=True,

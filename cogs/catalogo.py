@@ -32,6 +32,8 @@ import discord
 from discord import app_commands
 from discord.ext import commands
 from cogs.news_feed import GameNewsCog  # complemento integrado de notícias RSS
+from settings_store import get_setting
+from utils import upsert_panel
 
 # O catálogo agora é uma extensão do Soulsbot: não altera o diretório de
 # trabalho do processo compartilhado e continua usando um banco SQLite separado.
@@ -1154,6 +1156,38 @@ class ModsCatalogView(discord.ui.View):
         return embed, file
 
 
+class ModsLandingView(discord.ui.View):
+    """Painel permanente no canal do catálogo de mods; resultados são efêmeros."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Explorar mods", emoji="🧩", style=discord.ButtonStyle.primary,
+                       custom_id="catalogo_mods:explorar")
+    async def explorar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        view = ModsCatalogView()
+        embed, file = view.render()
+        kwargs = {"embed": embed, "view": view, "ephemeral": True}
+        if file:
+            kwargs["file"] = file
+        await interaction.response.send_message(**kwargs)
+
+    @discord.ui.button(label="Enviar mod", emoji="📥", style=discord.ButtonStyle.success,
+                       custom_id="catalogo_mods:enviar")
+    async def enviar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AdicionarModModal(publico=True))
+
+
+class ModsSubmitView(discord.ui.View):
+    """Entrada persistente de envio de mods no canal dedicado."""
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Enviar um mod para revisão", emoji="📥", style=discord.ButtonStyle.success,
+                       custom_id="catalogo_mods:submit_channel:enviar")
+    async def enviar(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(AdicionarModModal(publico=True))
+
+
 class AdicionarModModal(discord.ui.Modal):
     jogo_nome = discord.ui.TextInput(label="Nome do jogo", max_length=100, placeholder="Ex.: Skyrim")
     mod_nome = discord.ui.TextInput(label="Nome do mod", max_length=100, placeholder="Ex.: Texturas HD")
@@ -1450,6 +1484,8 @@ class Bot(commands.Bot):
 
     async def setup_hook(self):
         self.add_view(MainView())
+        self.add_view(ModsLandingView())
+        self.add_view(ModsSubmitView())
         await self.add_cog(GameNewsCog(self))
         # A sincronização ocorre em on_ready, quando a lista de servidores está disponível.
 
@@ -1460,10 +1496,10 @@ _CATALOGO_ORIGINAL_BOT = bot
 _CATALOGO_ORIGINAL_TREE = tree
 
 
-async def publicar_ou_atualizar_painel(interaction: discord.Interaction, chave: str, *, content=None, embed=None, view=None, file=None):
+async def publicar_ou_atualizar_painel(interaction: discord.Interaction, chave: str, *, content=None, embed=None, view=None, file=None, destination=None):
     """Mantém um único painel público por canal; a interação do slash command responde em privado."""
     await interaction.response.defer(ephemeral=True, thinking=True)
-    canal = interaction.channel
+    canal = destination or interaction.channel
     if canal is None or not hasattr(canal, "send"):
         await interaction.edit_original_response(content="❌ Não foi possível determinar o canal de publicação.")
         return
@@ -1560,8 +1596,21 @@ async def painelmods(interaction: discord.Interaction):
 @app_commands.default_permissions(manage_guild=True)
 @app_commands.checks.has_permissions(manage_guild=True)
 async def catalogo(interaction: discord.Interaction):
+    if interaction.guild is None:
+        return await interaction.response.send_message("Use este comando dentro de um servidor.", ephemeral=True)
+    configured_id = await get_setting(bot, interaction.guild.id, "catalog_channel_id", 0)
+    destination = interaction.guild.get_channel(int(configured_id)) if configured_id else interaction.channel
+    if configured_id and not isinstance(destination, discord.TextChannel):
+        return await interaction.response.send_message(
+            "O canal do catálogo configurado no `/adm` não existe ou não é um canal de texto. "
+            "Corrija a associação em `/adm` → Canais.", ephemeral=True,
+        )
+    if destination is None or not isinstance(destination, discord.TextChannel):
+        return await interaction.response.send_message("Não foi possível identificar o canal de catálogo.", ephemeral=True)
     await publicar_ou_atualizar_painel(
-        interaction, f"catalogo_msg_{interaction.channel_id}", content=main_content(), view=MainView())
+        interaction, f"catalogo_msg_{destination.id}", content=main_content(),
+        view=MainView(), destination=destination,
+    )
 
 
 async def sincronizar_servidor(guild: discord.Guild):
@@ -1620,6 +1669,54 @@ if __name__ == "__main__":
     bot.run(TOKEN)
 
 
+async def publish_organization_panels(guild: discord.Guild):
+    """Cria/atualiza os painéis públicos dos canais de jogos e mods definidos pelo /adm."""
+    if bot is None or getattr(bot, "user", None) is None:
+        raise RuntimeError("O bot compartilhado ainda não está pronto para publicar os painéis.")
+
+    from settings_store import get_setting
+    game_id = await get_setting(bot, guild.id, "catalog_channel_id", 0)
+    mods_id = await get_setting(bot, guild.id, "mods_channel_id", 0)
+    game_channel = guild.get_channel(int(game_id)) if game_id else None
+    mods_channel = guild.get_channel(int(mods_id)) if mods_id else None
+    published = []
+
+    if isinstance(game_channel, discord.TextChannel):
+        message, created = await upsert_panel(
+            bot, game_channel, f"panel:game-catalog:{guild.id}:{game_channel.id}",
+            marker="catalogo:ver", content=main_content(), view=MainView(),
+        )
+        set_config(f"catalogo_msg_{game_channel.id}", str(message.id))
+        published.append(f"catálogo de jogos {'criado' if created else 'atualizado'}")
+    else:
+        raise ValueError("Canal do catálogo de jogos não configurado ou inválido no /adm.")
+
+    if isinstance(mods_channel, discord.TextChannel):
+        message, created = await upsert_panel(
+            bot, mods_channel, f"panel:mods-catalog:{guild.id}:{mods_channel.id}",
+            marker="catalogo_mods:*",
+            content=("# 🧩 Catálogo de Mods\n\n"
+                     "Explore mods cadastrados, veja detalhes e links ou envie um mod para revisão da equipe."),
+            view=ModsLandingView(),
+        )
+        set_config(f"mods_msg_{mods_channel.id}", str(message.id))
+        published.append(f"catálogo de mods {'criado' if created else 'atualizado'}")
+    else:
+        raise ValueError("Canal do catálogo de mods não configurado ou inválido no /adm.")
+
+    submit_channel = next((c for c in guild.text_channels if c.name == "📥・envio-de-mods"), None)
+    if submit_channel is not None:
+        _message, created = await upsert_panel(
+            bot, submit_channel, f"panel:mods-submit:{guild.id}:{submit_channel.id}",
+            marker="catalogo_mods:submit_channel:*",
+            content=("# 📥 Envio de mods\n\n"
+                     "Envie um mod com descrição e link. A equipe vai revisar o conteúdo antes de incluí-lo no catálogo."),
+            view=ModsSubmitView(),
+        )
+        published.append(f"painel de envio de mods {'criado' if created else 'atualizado'}")
+    return published
+
+
 async def setup(shared_bot):
     """Registra os comandos existentes do catálogo no bot principal, sem login separado."""
     global bot, tree
@@ -1633,6 +1730,8 @@ async def setup(shared_bot):
     tree = shared_bot.tree
     shared_bot.catalog_db_path = DB_PATH
     shared_bot.add_view(MainView())
+    shared_bot.add_view(ModsLandingView())
+    shared_bot.add_view(ModsSubmitView())
     # Reaproveita o mesmo handler de erros dos comandos do catálogo.
     try:
         shared_bot.tree.error(on_error)

@@ -36,12 +36,13 @@ class Sentinela(commands.Cog):
         for guild in self.bot.guilds:
             for _, nome_original in PATENTES:
                 nome_novo = nome_patente_exibicao(nome_original)
-                cargo = discord.utils.get(guild.roles, name=nome_original)
+                cargo = next((r for r in guild.roles if (
+                    r.name == nome_original or r.name == nome_novo
+                    or r.name.endswith(f"・{nome_original}") or r.name.endswith(f" {nome_original}")
+                )), None)
                 if cargo is None:
-                    cargo = discord.utils.get(guild.roles, name=nome_novo)
-                if cargo is None:
-                    logging.warning(
-                        "Sentinela: cargo '%s' não encontrado em '%s'; nenhum cargo foi criado.",
+                    logging.info(
+                        "Sentinela: patente '%s' ainda não provisionada em '%s'; use /adm → Organização do servidor.",
                         nome_original, guild.name,
                     )
                     continue
@@ -74,13 +75,31 @@ class Sentinela(commands.Cog):
         antigo_nivel = nivel_por_xp(xp_antigo)
         _, novo_nivel, total = await self.bot.db.add_reward(user_id, quantidade, 0)
         membro = guild.get_member(user_id) if guild else None
-        if membro and novo_nivel > antigo_nivel:
+        if membro:
+            # Mantém o cargo da patente em sincronia mesmo se o membro ainda não avançou de nível.
             await sincronizar_patente(guild, membro, novo_nivel)
-            try:
-                await membro.send(f"⚔️ Você alcançou o nível **{novo_nivel} — {patente_por_nivel(novo_nivel)}** no Sentinela! (+{quantidade} XP por {motivo})")
-            except (discord.Forbidden, discord.HTTPException):
-                pass
+            if novo_nivel > antigo_nivel:
+                try:
+                    await membro.send(f"⚔️ Você alcançou o nível **{novo_nivel} — {patente_por_nivel(novo_nivel)}** no Sentinela! (+{quantidade} XP por {motivo})")
+                except (discord.Forbidden, discord.HTTPException):
+                    pass
         return total
+
+    @commands.Cog.listener()
+    async def on_member_join(self, member: discord.Member):
+        """Aplica o cargo de recém-chegado e revalida a patente se o usuário já tinha XP."""
+        if member.bot:
+            return
+        from settings_store import get_setting
+        newcomer_id = await get_setting(self.bot, member.guild.id, "role_newcomer_id", 0)
+        newcomer = member.guild.get_role(int(newcomer_id)) if newcomer_id else None
+        if newcomer and newcomer not in member.roles:
+            try:
+                await member.add_roles(newcomer, reason="Quase Pro: cargo inicial de recém-chegado")
+            except (discord.Forbidden, discord.HTTPException):
+                logging.getLogger("sentinela").warning("Não foi possível aplicar Recém-chegado a %s em %s", member.id, member.guild.id)
+        user = await self.bot.db.get_user(member.id)
+        await sincronizar_patente(member.guild, member, nivel_por_xp(int(user["xp"])))
 
     @commands.Cog.listener()
     async def on_message(self, message):

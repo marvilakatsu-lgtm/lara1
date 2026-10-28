@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import logging
 import aiosqlite
 from datetime import datetime, timedelta, timezone
 
@@ -11,6 +12,9 @@ from discord import app_commands
 from discord.ext import commands
 
 from settings_store import audit, get_setting, module_enabled
+from utils import upsert_panel
+
+log = logging.getLogger("quasepro.clans")
 
 MAX_MEMBERS = 10
 INVITE_DAYS = 7
@@ -487,6 +491,20 @@ class Clans(commands.Cog):
         # O registro persistente reaplica os custom_ids após reinicializações.
         self.bot.add_view(ClansPublicView(self))
 
+    async def publish_organization_panel(self, guild: discord.Guild, channel: discord.TextChannel):
+        """Publica/atualiza o painel persistente no canal oficial do Salão dos Juramentos."""
+        content = (
+            "# ⚔️ Salão dos Juramentos\n\n"
+            "Reúna aliados, funde seu clã, encontre companheiros para suas jornadas e acompanhe as atividades coletivas.\n\n"
+            "**Limites:** um clã por criador e por servidor; até 10 integrantes por clã.\n"
+            "Use os botões para criar, explorar, gerenciar seu clã, consultar convites, atividades e ranking.\n\n"
+            "-# Os canais privados são acessíveis aos integrantes autorizados; administradores do servidor ainda podem ter acesso."
+        )
+        return await upsert_panel(
+            self.bot, channel, f"panel:clans:{guild.id}:{channel.id}",
+            marker="quasepro:clans:*", content=content, view=ClansPublicView(self),
+        )
+
     async def get_clan(self, guild_id: int, clan_id: int):
         return await self.bot.db._one("SELECT * FROM clans WHERE guild_id=? AND id=?", (int(guild_id), int(clan_id)))
 
@@ -497,6 +515,38 @@ class Clans(commands.Cog):
     async def member_role(self, guild_id: int, clan_id: int, user_id: int):
         row = await self.bot.db._one("SELECT role FROM clan_members WHERE guild_id=? AND clan_id=? AND user_id=?", (int(guild_id), int(clan_id), int(user_id)))
         return row["role"] if row else None
+
+    async def _sync_member_clan_role(self, guild: discord.Guild, user_id: int, clan_role: str | None) -> bool:
+        """Sincroniza o cargo visual de clã sem usá-lo para liberar canais privados."""
+        member = guild.get_member(int(user_id))
+        if member is None:
+            try:
+                member = await guild.fetch_member(int(user_id))
+            except (discord.NotFound, discord.Forbidden, discord.HTTPException):
+                return False
+        from server_structure import ROLE_DEFINITIONS, normalize_name
+        role_keys = {"leader": "clan_leader", "officer": "clan_officer", "member": "clan_member"}
+        managed_defs = [d for d in ROLE_DEFINITIONS if d.get("key") in {"clan_leader", "clan_officer", "clan_member"}]
+        managed_roles = []
+        for definition in managed_defs:
+            names = {normalize_name(definition["name"])} | {normalize_name(alias) for alias in definition.get("aliases", ())}
+            role = next((r for r in guild.roles if normalize_name(r.name) in names), None)
+            if role is not None:
+                managed_roles.append((definition["key"], role))
+        desired_key = role_keys.get(clan_role) if clan_role else None
+        desired = next((role for key, role in managed_roles if key == desired_key), None)
+        if desired_key and desired is None:
+            return False
+        try:
+            to_remove = [role for _key, role in managed_roles if role in member.roles and role != desired]
+            if to_remove:
+                await member.remove_roles(*to_remove, reason="Quase Pro: sincronização do cargo interno do clã")
+            if desired and desired not in member.roles:
+                await member.add_roles(desired, reason="Quase Pro: sincronização do cargo interno do clã")
+            return True
+        except (discord.Forbidden, discord.HTTPException):
+            log.warning("Falha ao sincronizar cargo de clã de %s em %s", user_id, guild.id, exc_info=True)
+            return False
 
     def clan_embed(self, row, count: int) -> discord.Embed:
         vacancies = max(0, MAX_MEMBERS - count)
@@ -557,6 +607,7 @@ class Clans(commands.Cog):
             await conn.close()
 
         channel_result = await self._create_private_space(guild, user, clan_id, name)
+        await self._sync_member_clan_role(guild, user.id, "leader")
         status = "active" if channel_result else "degraded"
         await self.bot.db.conn.execute("UPDATE clans SET status=?, updated_at=CURRENT_TIMESTAMP WHERE guild_id=? AND id=?", (status, guild.id, clan_id))
         await self.bot.db.conn.commit()
@@ -585,7 +636,12 @@ class Clans(commands.Cog):
                 overwrites[leader] = discord.PermissionOverwrite(
                     view_channel=True, send_messages=True, read_message_history=True, connect=True, speak=True,
                 )
-            for setting_key in ("admin_role_id", "moderation_role_id"):
+            # A equipe autorizada conserva acesso aos espaços privados mesmo quando
+            # o servidor já tinha IDs próprios para os cargos administrativos.
+            for setting_key in (
+                "founder_role_id", "admin_role_id", "moderation_role_id",
+                "role_founder_id", "role_administrator_id", "role_moderator_id",
+            ):
                 role_id = await get_setting(self.bot, guild.id, setting_key, 0)
                 role = guild.get_role(int(role_id)) if role_id else None
                 if role:
@@ -614,10 +670,10 @@ class Clans(commands.Cog):
                         connect=True, speak=True,
                     )
 
+            category_name = f"⚔️・CLÃ {name}"[:95]
             if category is None:
-                safe_name = f"cla-{_slug(name)}"[:90]
                 category = await guild.create_category(
-                    safe_name, overwrites=overwrites,
+                    category_name, overwrites=overwrites,
                     reason=f"Quase Pro: provisionamento do clã #{clan_id}",
                 )
                 await self.bot.db.conn.execute(
@@ -627,15 +683,17 @@ class Clans(commands.Cog):
                 await self.bot.db.conn.commit()
             else:
                 await category.edit(
+                    name=category_name,
                     overwrites=overwrites,
                     reason=f"Quase Pro: reconciliar allowlist privada do clã #{clan_id}",
                 )
 
+            # A ordem segue o modelo público solicitado para cada espaço privado de clã.
             channel_defs = (
-                ("chat_channel_id", "conversa", "text"),
-                ("announcements_id", "anuncios-do-cla", "text"),
-                ("strategies_id", "estrategias-e-builds", "text"),
-                ("voice_channel_id", "sala-do-cla", "voice"),
+                ("announcements_id", "📢・anúncios-do-clã", "text"),
+                ("chat_channel_id", "💬・conversa-do-clã", "text"),
+                ("strategies_id", "🗡️・estratégias-e-builds", "text"),
+                ("voice_channel_id", "🔊・sala-do-clã", "voice"),
             )
             for field, channel_name, kind in channel_defs:
                 row = await self.get_clan(guild.id, clan_id)
@@ -660,16 +718,12 @@ class Clans(commands.Cog):
                         (channel.id, guild.id, clan_id),
                     )
                     await self.bot.db.conn.commit()
-                elif channel.category_id != category.id:
-                    await channel.edit(
-                        category=category, sync_permissions=True,
-                        reason=f"Quase Pro: reparar categoria do clã #{clan_id}",
-                    )
                 else:
-                    await channel.edit(
-                        sync_permissions=True,
-                        reason=f"Quase Pro: sincronizar permissões do clã #{clan_id}",
-                    )
+                    if channel.name != channel_name or channel.category_id != category.id or not getattr(channel, "permissions_synced", False):
+                        await channel.edit(
+                            name=channel_name, category=category, sync_permissions=True,
+                            reason=f"Quase Pro: renomear/sincronizar canal do clã #{clan_id}",
+                        )
             return True
         except Exception as exc:
             # Estado parcial permanece registrado para diagnóstico e reparo posterior.
@@ -897,6 +951,7 @@ class Clans(commands.Cog):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 member = None
         permissions_ok = await self._set_member_permission(interaction.guild, row["clan_id"], member, True)
+        await self._sync_member_clan_role(interaction.guild, user_id, "member")
         await audit(self.bot, guild_id, user_id, "clan_invite_accepted", f"clan_id={row['clan_id']}", result="success" if permissions_ok else "partial")
         if not permissions_ok:
             return "Convite aceito e vínculo registrado, mas as permissões do Discord não foram aplicadas. Avise a equipe para corrigir a integridade pelo `/adm`."
@@ -971,6 +1026,7 @@ class Clans(commands.Cog):
             except (discord.NotFound, discord.Forbidden, discord.HTTPException):
                 member = None
         permissions_ok = await self._set_member_permission(interaction.guild, clan_id, member, True)
+        await self._sync_member_clan_role(interaction.guild, int(app["user_id"]), "member")
         await audit(self.bot, guild_id, interaction.user.id, "clan_application_accepted", f"application_id={app_id}", result="success" if permissions_ok else "partial")
         if not permissions_ok:
             return f"Candidatura de <@{app['user_id']}> aprovada e registro salvo, mas as permissões do Discord falharam. Avise a equipe para usar `/adm` → Sistema de Clãs → Reparar recursos."
@@ -1014,6 +1070,7 @@ class Clans(commands.Cog):
         await self.bot.db.conn.execute("DELETE FROM clan_members WHERE guild_id=? AND clan_id=? AND user_id=?", (interaction.guild.id, clan_id, user_id))
         await self.bot.db.conn.commit()
         await self._set_member_permission(interaction.guild, clan_id, interaction.guild.get_member(user_id), False)
+        await self._sync_member_clan_role(interaction.guild, user_id, None)
         await audit(self.bot, interaction.guild.id, user_id, "clan_member_left", f"clan_id={clan_id}")
         return "Você saiu do clã e o acesso à categoria privada foi removido."
 
@@ -1042,6 +1099,8 @@ class Clans(commands.Cog):
             raise
         finally:
             await conn.close()
+        await self._sync_member_clan_role(interaction.guild, interaction.user.id, "member")
+        await self._sync_member_clan_role(interaction.guild, target_id, "leader")
         await audit(self.bot, guild_id, interaction.user.id, "clan_leadership_transferred", f"clan_id={clan_id};new_leader={target_id}")
         return f"Liderança transferida para <@{target_id}>. O histórico do clã foi preservado."
 
@@ -1062,6 +1121,7 @@ class Clans(commands.Cog):
         await self.bot.db.conn.commit()
         for m in members:
             await self._set_member_permission(interaction.guild, clan_id, interaction.guild.get_member(m["user_id"]), False)
+            await self._sync_member_clan_role(interaction.guild, int(m["user_id"]), None)
         deleted, failed = 0, []
         for field in ("chat_channel_id", "announcements_id", "strategies_id", "voice_channel_id", "category_id"):
             value = row[field]
@@ -1119,6 +1179,7 @@ class Clans(commands.Cog):
             raise
         finally:
             await conn.close()
+        await self._sync_member_clan_role(interaction.guild, target_id, "officer" if promote else "member")
         action = "clan_officer_appointed" if promote else "clan_officer_removed"
         await audit(self.bot, guild_id, interaction.user.id, action, f"clan_id={clan_id};member={target_id}")
         return f"<@{target_id}> {'foi nomeado oficial' if promote else 'deixou de ser oficial'}."

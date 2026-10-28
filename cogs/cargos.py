@@ -5,14 +5,15 @@ from discord.ext import commands
 from utils import upsert_panel, erro_comando
 
 DEFAULT_ROLES = [
-    ("Avisos de Vídeo", "🔔"),
-    ("Avisos de Live", "🔴"),
-    ("Elden Ring", "⚔️"),
-    ("Dark Souls", "💀"),
-    ("Bloodborne", "🩸"),
-    ("Sekiro", "🗡️"),
-    ("Outros Soulslikes", "🌑"),
-    ("Procurando Co-op", "🤝"),
+    ("interest_elden_ring", "Elden Ring", "🎮"),
+    ("interest_dark_souls", "Dark Souls", "🔥"),
+    ("interest_bloodborne", "Bloodborne", "🩸"),
+    ("interest_sekiro", "Sekiro", "🥷"),
+    ("interest_lies_of_p", "Lies of P", "🦾"),
+    ("interest_nightreign", "Nightreign", "🌑"),
+    ("notice_videos", "Avisos de vídeos", "📹"),
+    ("notice_lives", "Avisos de lives", "🔴"),
+    ("events_challenges", "Eventos e desafios", "🏆"),
 ]
 MAX_ROLES = 25
 
@@ -27,19 +28,28 @@ class Verificacao(discord.ui.View):
         if interaction.guild is None or not isinstance(interaction.user, discord.Member):
             await interaction.response.send_message("Use este botão dentro do servidor.", ephemeral=True)
             return
-        cargo = discord.utils.get(interaction.guild.roles, name="✅ Membro")
+        from settings_store import get_setting
+        from server_structure import normalize_name
+        role_id = await get_setting(interaction.client, interaction.guild.id, "member_role_id", 0)
+        cargo = interaction.guild.get_role(int(role_id)) if role_id else None
         if cargo is None:
-            await interaction.response.send_message("Cargo de membro não encontrado.", ephemeral=True)
-            return
-        if cargo in interaction.user.roles:
-            await interaction.response.send_message("Você já está verificado(a)!", ephemeral=True)
+            cargo = next((r for r in interaction.guild.roles if normalize_name(r.name) == "membro"), None)
+        newcomer_id = await get_setting(interaction.client, interaction.guild.id, "role_newcomer_id", 0)
+        newcomer = interaction.guild.get_role(int(newcomer_id)) if newcomer_id else None
+        if newcomer is None:
+            newcomer = next((r for r in interaction.guild.roles if normalize_name(r.name) == "recem-chegado"), None)
+        if cargo is None:
+            await interaction.response.send_message("Cargo 🟢・Membro não encontrado. Peça à equipe para executar /adm → Organização do servidor.", ephemeral=True)
             return
         try:
-            await interaction.user.add_roles(cargo, reason="Verificação por botão")
-            await interaction.response.send_message("Verificação concluída! Bem-vindo(a).", ephemeral=True)
-        except discord.Forbidden:
+            if cargo not in interaction.user.roles:
+                await interaction.user.add_roles(cargo, reason="Verificação pelo painel de boas-vindas")
+            if newcomer and newcomer in interaction.user.roles:
+                await interaction.user.remove_roles(newcomer, reason="Membro concluiu a verificação do servidor")
+            await interaction.response.send_message("Acesso de membro confirmado. Bem-vindo(a) ao Quase Pro!", ephemeral=True)
+        except (discord.Forbidden, discord.HTTPException):
             await interaction.response.send_message(
-                "Não consigo atribuir esse cargo. Confira Gerenciar Cargos e a hierarquia do bot.",
+                "Não consigo atualizar seus cargos. A equipe deve conferir Gerenciar Cargos e a hierarquia do bot.",
                 ephemeral=True)
 
 
@@ -115,19 +125,27 @@ class Cargos(commands.Cog):
             try:
                 data = json.loads(raw)
                 data.setdefault("title", "🎭 Escolha seus cargos")
-                data.setdefault("description", "Clique em um cargo para adicioná-lo ou removê-lo. Clique novamente para tirar.")
+                data.setdefault("description", "Escolha os jogos que você acompanha e os avisos que deseja receber. Clique novamente para remover um cargo. As patentes Soulslike são atribuídas automaticamente pelo XP e nível.")
                 data.setdefault("roles", [])
                 return data
             except (ValueError, TypeError):
                 pass
+        from settings_store import get_setting
+        from server_structure import normalize_name
         roles = []
-        for name, emoji in DEFAULT_ROLES:
-            role = discord.utils.get(guild.roles, name=name) or discord.utils.get(guild.roles, name=f"{emoji} {name}")
+        for role_key, name, emoji in DEFAULT_ROLES:
+            role_id = await get_setting(self.bot, guild.id, f"role_{role_key}_id", 0)
+            role = guild.get_role(int(role_id)) if role_id else None
+            if role is None:
+                wanted = normalize_name(name)
+                role = next((r for r in guild.roles if normalize_name(r.name) == wanted), None)
             if role:
                 roles.append({"role_id": role.id, "label": name, "emoji": emoji})
         data = {
             "title": "🎭 Escolha seus cargos",
-            "description": "Clique em um cargo para adicioná-lo ou removê-lo. Clique novamente para tirar.",
+            "description": ("Escolha os jogos que você acompanha e quais notificações deseja receber. "
+                            "Clique novamente no mesmo botão para remover o cargo. "
+                            "As patentes de Soulslike são atribuídas automaticamente pelo XP e nível."),
             "roles": roles,
         }
         await self._save_config(guild.id, data)
@@ -145,6 +163,49 @@ class Cargos(commands.Cog):
             f"panel:roles:{interaction.guild_id}:{interaction.channel_id}",
             marker="cargo_escolha_*", content=content, embeds=[],
             view=CargosView(data.get("roles", [])),
+        )
+
+    async def publish_welcome_panel(self, guild: discord.Guild, channel: discord.TextChannel):
+        """Publica/atualiza o painel de boas-vindas e sincroniza o cargo Membro."""
+        content = (
+            "# 📜 Boas-vindas ao Quase Pro\n\n"
+            "Leia `📕・regras-do-reino` e use o botão abaixo para confirmar que deseja participar da comunidade.\n"
+            "Ao confirmar, você recebe o cargo **Membro** e o cargo **Recém-chegado** é removido.\n\n"
+            "-# Esta confirmação não oculta canais por si só; o acesso efetivo depende das permissões configuradas no servidor."
+        )
+        return await upsert_panel(
+            self.bot, channel, f"panel:verification:{guild.id}:{channel.id}",
+            marker="verificar_membro", content=content, embeds=[], view=Verificacao(),
+        )
+
+    async def publish_organization_panel(self, guild: discord.Guild, channel: discord.TextChannel):
+        """Salva e publica a lista de cargos de interesse definida pelo projeto."""
+        roles = []
+        for role_key, name, emoji in DEFAULT_ROLES:
+            # A fonte de verdade fica na configuração central por servidor.
+            from settings_store import get_setting
+            configured_id = await get_setting(self.bot, guild.id, f"role_{role_key}_id", 0)
+            role = guild.get_role(int(configured_id)) if configured_id else None
+            if role is None:
+                from server_structure import normalize_name
+                role = next((r for r in guild.roles if normalize_name(r.name) == normalize_name(name)), None)
+            if role is not None:
+                roles.append({"role_id": role.id, "label": name, "emoji": emoji})
+        data = {
+            "title": "🎭 Escolha seus cargos",
+            "description": (
+                "Selecione os jogos que você acompanha e os avisos que deseja receber. "
+                "Clique novamente para remover um cargo.\n\n"
+                "**As patentes Soulslike são automáticas:** o Soulsbot atribui a patente correspondente ao seu XP e nível."
+            ),
+            "roles": roles,
+        }
+        await self._save_config(guild.id, data)
+        content = f"# {data['title']}\n\n{data['description']}"
+        return await upsert_panel(
+            self.bot, channel, f"panel:roles:{guild.id}:{channel.id}",
+            marker="cargo_escolha_*", content=content, embeds=[],
+            view=CargosView(data["roles"]),
         )
 
     @app_commands.command(name="painel_verificacao", description="[MOD] Publica ou atualiza o painel de verificação.")

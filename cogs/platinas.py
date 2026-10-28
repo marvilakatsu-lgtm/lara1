@@ -20,25 +20,32 @@ async def eh_moderador(member: discord.Member, bot=None) -> bool:
 
 
 async def sincronizar_patente(guild: discord.Guild, member: discord.Member, nivel: int):
-    """Dá o cargo da patente atual e remove as outras. Cria o cargo se não existir."""
-    from levels import PATENTES
+    """Aplica exatamente o cargo correspondente ao nível atual, removendo patentes antigas."""
+    from levels import eh_cargo_patente, nome_patente_exibicao
 
-    from levels import nome_patente_exibicao, eh_cargo_patente
-    alvo_nome = nome_patente_exibicao(patente_por_nivel(nivel))
-    alvo = discord.utils.get(guild.roles, name=alvo_nome)
+    patente_base = patente_por_nivel(nivel)
+    alvo_nome = nome_patente_exibicao(patente_base)
+    # Reconhece nomes crus, nomes decorados atuais e símbolos legados sem criar duplicatas.
+    alvo = next((
+        role for role in guild.roles
+        if role.name == alvo_nome or role.name == patente_base
+        or role.name.endswith(f"・{patente_base}") or role.name.endswith(f" {patente_base}")
+    ), None)
     if alvo is None:
-        alvo = discord.utils.get(guild.roles, name=patente_por_nivel(nivel))
+        return
     try:
-        if alvo is None:
-            # Não cria cargo aqui; a inicialização só renomeia cargos existentes.
-            return
         remover = [r for r in member.roles if eh_cargo_patente(r.name) and r != alvo]
         if remover:
-            await member.remove_roles(*remover, reason="Colizeu: mudança de patente")
+            await member.remove_roles(*remover, reason="Sentinela: sincronização de patente por XP/nível")
         if alvo not in member.roles:
-            await member.add_roles(alvo, reason="Colizeu: nova patente")
+            await member.add_roles(alvo, reason="Sentinela: sincronização de patente por XP/nível")
     except discord.Forbidden:
-        pass  # o cargo do bot precisa estar ACIMA dos cargos de patente
+        logging.getLogger("sentinela").warning(
+            "Não foi possível sincronizar a patente de %s no servidor %s; confira Gerenciar Cargos e a hierarquia.",
+            member.id, guild.id,
+        )
+    except discord.HTTPException:
+        logging.getLogger("sentinela").exception("Falha de API sincronizando patente de %s em %s", member.id, guild.id)
 
 
 class RevisaoView(discord.ui.View):
