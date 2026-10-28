@@ -428,6 +428,235 @@ class GogSource:
 
 
 # ---------------------------------------------------------------------------
+# Nuuvem (scraping leve da página de busca/catalogo)
+# ---------------------------------------------------------------------------
+
+class NuuvemSource:
+    """Conector para Nuuvem baseado em scraping da página de catálogo.
+
+    A Nuuvem não oferece API pública documentada; este conector consulta a
+    página de busca e extrai títulos, preços e links. É mais frágil que uma
+    API oficial, mas é a única forma viável de integração automática.
+    """
+
+    name = "Nuuvem"
+    enabled_by_default = True
+
+    _SEARCH_URL = "https://www.nuuvem.com/catalog/search/{query}"
+    _CATALOG_URL = "https://www.nuuvem.com/catalog"
+
+    async def fetch(self, session: aiohttp.ClientSession) -> list[Offer]:
+        # Busca por termos genéricos para capturar promoções ativas.
+        queries = ["oferta", "gratis", "free"]
+        all_offers: list[Offer] = []
+        seen_keys: set[str] = set()
+
+        for query in queries:
+            url = self._SEARCH_URL.format(query=query)
+            html = await self._fetch_html(session, url)
+            if not html:
+                continue
+            items = self._parse_search_results(html, query)
+            for item in items:
+                if item.key not in seen_keys:
+                    seen_keys.add(item.key)
+                    all_offers.append(item)
+
+        return all_offers
+
+    async def _fetch_html(self, session: aiohttp.ClientSession, url: str) -> str | None:
+        try:
+            headers = {
+                "User-Agent": "QuaseProBot/2.0 (compatible; offers-monitor)",
+                "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
+                "Accept": "text/html,application/xhtml+xml",
+            }
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    log.warning("Nuuvem retornou status %s para %s", resp.status, url)
+                    return None
+                return await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            log.exception("Falha consultando Nuuvem: %s", url)
+            return None
+
+    def _parse_search_results(self, html: str, query: str) -> list[Offer]:
+        """Extrai produtos da página de busca usando regex simples.
+
+        Evita dependência de BeautifulSoup no núcleo do bot; se o layout
+        mudar significativamente, este parser precisará ser atualizado.
+        """
+        import re
+
+        offers: list[Offer] = []
+        # Padrão para cards de produto na Nuuvem (sujeito a mudanças de layout)
+        # Busca blocos com título, preço e link
+        card_pattern = re.compile(
+            r'<a[^>]+href="(/[^"]+)"[^>]*class="[^"]*product-card[^"]*"[^>]*>.*?'
+            r'class="[^"]*product-title[^"]*"[^>]*>([^<]+)</.*?'
+            r'class="[^"]*product-price[^"]*"[^>]*>([^<]+)<',
+            re.DOTALL | re.IGNORECASE,
+        )
+
+        for match in card_pattern.finditer(html):
+            path, title_raw, price_raw = match.groups()
+            title = title_raw.strip()
+            price_text = price_raw.strip()
+
+            if not title or not price_text:
+                continue
+
+            url = f"https://www.nuuvem.com{path}" if path.startswith("/") else path
+            price_value = self._parse_price(price_text)
+            is_free = price_value is not None and price_value <= 0
+
+            if not is_free and price_value is None:
+                continue
+
+            price_display = "Grátis" if is_free else price_text
+            key = f"nuuvem:{re.sub(r'[^a-z0-9]', '', title.lower())}"
+
+            offers.append(Offer(
+                key=key,
+                title=title,
+                url=url,
+                source="Nuuvem",
+                kind="free" if is_free else "promo",
+                price=price_display,
+                platform="PC",
+                description="Oferta da Nuuvem. Confira a página da loja para condições.",
+                activation_platform="PC",
+            ))
+
+        return offers
+
+    @staticmethod
+    def _parse_price(text: str) -> float | None:
+        """Extrai valor numérico de texto de preço brasileiro."""
+        import re
+        cleaned = re.sub(r'[^\d,\.]', '', text.replace('.', '').replace(',', '.'))
+        if not cleaned:
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+
+# ---------------------------------------------------------------------------
+# Instant Gaming (scraping da página de busca)
+# ---------------------------------------------------------------------------
+
+class InstantGamingSource:
+    """Conector para Instant Gaming baseado em scraping da página de busca.
+
+    A Instant Gaming não oferece API pública gratuita; este conector consulta
+    a página de pesquisa em português e extrai resultados com preços.
+    """
+
+    name = "Instant Gaming"
+    enabled_by_default = True
+
+    _SEARCH_URL = "https://www.instant-gaming.com/pt/pesquisar/?query={query}"
+
+    async def fetch(self, session: aiohttp.ClientSession) -> list[Offer]:
+        queries = ["oferta", "gratis", "free", "promo"]
+        all_offers: list[Offer] = []
+        seen_keys: set[str] = set()
+
+        for query in queries:
+            url = self._SEARCH_URL.format(query=query)
+            html = await self._fetch_html(session, url)
+            if not html:
+                continue
+            items = self._parse_search_results(html)
+            for item in items:
+                if item.key not in seen_keys:
+                    seen_keys.add(item.key)
+                    all_offers.append(item)
+
+        return all_offers
+
+    async def _fetch_html(self, session: aiohttp.ClientSession, url: str) -> str | None:
+        try:
+            headers = {
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept-Language": "en-US,en;q=0.9,pt-BR;q=0.8",
+                "Accept": "text/html,application/xhtml+xml",
+                "Referer": "https://www.instant-gaming.com/en/",
+            }
+            async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=20)) as resp:
+                if resp.status != 200:
+                    log.warning("Instant Gaming retornou status %s para %s", resp.status, url)
+                    return None
+                return await resp.text()
+        except (aiohttp.ClientError, asyncio.TimeoutError):
+            log.exception("Falha consultando Instant Gaming: %s", url)
+            return None
+
+    def _parse_search_results(self, html: str) -> list[Offer]:
+        """Extrai produtos da página de busca da Instant Gaming."""
+        import re
+
+        offers: list[Offer] = []
+        # Padrão para artigos de produto na Instant Gaming
+        article_pattern = re.compile(
+            r'<article[^>]+class="[^"]*item[^"]*"[^>]*>.*?'
+            r'<span[^>]+class="[^"]*title[^"]*"[^>]*>([^<]+)</span>.*?'
+            r'<a[^>]+href="([^"]+)"[^>]*class="[^"]*cover[^"]*".*?>.*?'
+            r'<div[^>]+class="[^"]*price[^"]*"[^>]*>([^<]*)</div>',
+            re.DOTALL | re.IGNORECASE,
+        )
+
+        for match in article_pattern.finditer(html):
+            title_raw, href, price_raw = match.groups()
+            title = title_raw.strip()
+            price_text = price_raw.strip() if price_raw else ""
+
+            if not title:
+                continue
+
+            full_url = href if href.startswith("http") else f"https://www.instant-gaming.com{href}"
+            price_value = self._parse_price(price_text)
+            is_free = price_value is not None and price_value <= 0
+
+            if not price_text and not is_free:
+                continue
+
+            price_display = "Grátis" if is_free else (price_text or "Consulte a loja")
+            key = f"instantgaming:{re.sub(r'[^a-z0-9]', '', title.lower())}"
+
+            offers.append(Offer(
+                key=key,
+                title=title,
+                url=full_url,
+                source="Instant Gaming",
+                kind="free" if is_free else "promo",
+                price=price_display,
+                platform="PC",
+                description="Oferta da Instant Gaming. Verifique a região e condições na loja.",
+                activation_platform="PC",
+            ))
+
+        return offers
+
+    @staticmethod
+    def _parse_price(text: str) -> float | None:
+        """Extrai valor numérico de texto de preço."""
+        import re
+        if not text:
+            return None
+        # Remove símbolos de moeda e normaliza separadores
+        cleaned = re.sub(r'[^\d,\.]', '', text.replace('.', '').replace(',', '.'))
+        if not cleaned:
+            return None
+        try:
+            return float(cleaned)
+        except ValueError:
+            return None
+
+
+# ---------------------------------------------------------------------------
 # Registro central de fontes
 # ---------------------------------------------------------------------------
 
@@ -436,6 +665,8 @@ ALL_SOURCES: list[SourceConnector] = [
     GamerPowerSource(),
     EpicGamesSource(),
     GogSource(),
+    NuuvemSource(),
+    InstantGamingSource(),
 ]
 
 SOURCE_NAMES = {s.name: s for s in ALL_SOURCES}
