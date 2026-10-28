@@ -1,6 +1,8 @@
 """Painel /adm: configuração por servidor, auditoria, diagnóstico e organização segura."""
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 import sqlite3
@@ -322,10 +324,30 @@ class OrganizationPreviewView(AdminBaseView):
         await interaction.response.edit_message(content=(
             "A aplicação vai criar/renomear categorias e canais para a estrutura comunitária simplificada, combinar destinos de feeds relacionados e preservar os IDs operacionais. "
             f"Vai criar/ajustar {len(ROLE_DEFINITIONS)} cargos com cores distintas e manter a progressão de XP existente. "
-            "Canais redundantes e categorias antigas serão movidos/ocultados em 🗄️・ARQUIVO ANTIGO privado para preservar mensagens; nada será excluído. "
+            "Canais redundantes e categorias antigas serão movidos/ocultados em 🗄️・ARQUIVO ANTIGO privado para preservar mensagens; nada será excluído nesta etapa. "
             "As permissões da equipe e o bloqueio de acesso até a verificação serão normalizados. "
             "Importante: o Discord exige que os cargos da equipe fiquem manualmente acima do cargo real do bot; o bot organizará os cargos funcionais abaixo dele. Confirma?"), embed=None,
             view=ConfirmOrganizationView(self.cog, self.guild_id))
+
+    @discord.ui.button(label="Prévia de limpeza total", style=discord.ButtonStyle.danger, emoji="🧹", row=1)
+    async def preview_cleanup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Exclusão em massa afeta o histórico e os cargos de todos os membros; somente o dono
+        # do servidor pode iniciar esse fluxo irreversível.
+        if interaction.guild is None or interaction.user.id != interaction.guild.owner_id:
+            return await interaction.response.send_message(
+                "Por segurança, somente o dono do servidor pode iniciar a limpeza destrutiva.", ephemeral=True,
+            )
+        plan = await self.cog.build_cleanup_plan(interaction.guild)
+        embed = self.cog.cleanup_preview_embed(interaction.guild, plan)
+        view = None
+        if not plan["blockers"]:
+            view = CleanupPreviewView(self.cog, self.guild_id, plan["signature"], bool(
+                plan["channels"] or plan["categories"] or plan["roles"]
+            ))
+        else:
+            # Mantém o caminho de volta à aplicação normal se o plano ainda não estiver pronto.
+            view = OrganizationPreviewView(self.cog, self.guild_id)
+        await interaction.response.edit_message(content=None, embed=embed, view=view)
 
 
 class ConfirmOrganizationView(AdminBaseView):
@@ -353,6 +375,143 @@ class ConfirmOrganizationView(AdminBaseView):
     @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary)
     async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="Plano cancelado. Nenhum recurso foi alterado.", view=None)
+
+
+class CleanupPreviewView(AdminBaseView):
+    """Second-stage cleanup: generate a backup before offering the irreversible action."""
+    def __init__(self, cog, guild_id, plan_signature: str, has_candidates: bool = True):
+        super().__init__(cog, guild_id, timeout=300)
+        self.plan_signature = plan_signature
+        self.has_candidates = bool(has_candidates)
+        self.prepare_backup.disabled = not self.has_candidates
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if interaction.guild_id != self.guild_id or interaction.guild is None or interaction.user.id != interaction.guild.owner_id:
+            await interaction.response.send_message(
+                "Somente o dono do servidor pode preparar uma limpeza destrutiva.", ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Gerar backup e preparar exclusão", style=discord.ButtonStyle.danger, emoji="💾", row=0)
+    async def prepare_backup(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        backup_path = None
+        try:
+            current_plan = await self.cog.build_cleanup_plan(interaction.guild)
+            if current_plan["blockers"]:
+                return await interaction.followup.send(
+                    "A limpeza foi bloqueada porque a estrutura não está pronta ou ainda há referências ativas.\n" +
+                    "\n".join(f"• {item}" for item in current_plan["blockers"][:10]), ephemeral=True,
+                )
+            if current_plan["signature"] != self.plan_signature:
+                return await interaction.followup.send(
+                    "O servidor mudou desde a prévia. Nenhum item foi excluído. Gere uma nova prévia e revise a lista atualizada.",
+                    ephemeral=True,
+                )
+            backup_path = await self.cog.create_cleanup_backup(interaction.guild, current_plan)
+            await interaction.followup.send(
+                "**Backup preparado.** Baixe e guarde o arquivo anexado antes de continuar. "
+                "Ele contém os bancos de dados e um inventário dos canais/cargos, mas não contém o histórico das mensagens do Discord. "
+                "A exclusão só ocorrerá após clicar em Confirmar e digitar exatamente `APAGAR RESTO`.",
+                file=discord.File(backup_path, filename=os.path.basename(backup_path)),
+                view=CleanupFinalConfirmationView(self.cog, self.guild_id, self.plan_signature, interaction.user.id),
+                ephemeral=True,
+            )
+        except Exception as exc:
+            log.exception("Falha preparando backup de limpeza destrutiva no servidor %s", self.guild_id)
+            try:
+                await interaction.followup.send(
+                    f"Não foi possível preparar/entregar o backup ({type(exc).__name__}). Nenhum canal, categoria ou cargo foi excluído.",
+                    ephemeral=True,
+                )
+            except discord.HTTPException:
+                pass
+        finally:
+            if backup_path:
+                try:
+                    os.remove(backup_path)
+                except OSError:
+                    pass
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, row=0)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Limpeza cancelada. Nada foi excluído.", embed=None, view=None)
+
+
+class CleanupFinalConfirmationView(AdminBaseView):
+    def __init__(self, cog, guild_id: int, plan_signature: str, owner_id: int):
+        super().__init__(cog, guild_id, timeout=300)
+        self.plan_signature = plan_signature
+        self.owner_id = int(owner_id)
+
+    async def interaction_check(self, interaction: discord.Interaction) -> bool:
+        if (interaction.guild_id != self.guild_id or interaction.guild is None
+                or interaction.user.id != interaction.guild.owner_id or interaction.user.id != self.owner_id):
+            await interaction.response.send_message(
+                "Somente o dono que preparou esta operação pode confirmá-la.", ephemeral=True,
+            )
+            return False
+        return True
+
+    @discord.ui.button(label="Confirmar apagamento", style=discord.ButtonStyle.danger, emoji="🗑️", row=0)
+    async def confirm_delete(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_modal(CleanupConfirmationModal(
+            self.cog, self.guild_id, self.plan_signature, self.owner_id,
+        ))
+
+    @discord.ui.button(label="Cancelar", style=discord.ButtonStyle.secondary, row=0)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="Limpeza cancelada. Nenhum item foi excluído.", view=None)
+
+
+class CleanupConfirmationModal(discord.ui.Modal, title="Confirmação de exclusão definitiva"):
+    confirmation = discord.ui.TextInput(
+        label="Digite APAGAR RESTO para confirmar",
+        placeholder="APAGAR RESTO",
+        min_length=12,
+        max_length=20,
+        required=True,
+    )
+
+    def __init__(self, cog, guild_id: int, plan_signature: str, owner_id: int):
+        super().__init__(timeout=180)
+        self.cog = cog
+        self.guild_id = int(guild_id)
+        self.plan_signature = plan_signature
+        self.owner_id = int(owner_id)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        if (interaction.guild is None or interaction.guild_id != self.guild_id
+                or interaction.user.id != interaction.guild.owner_id or interaction.user.id != self.owner_id):
+            return await interaction.response.send_message(
+                "Confirmação recusada: somente o dono original deste servidor pode executar a limpeza.", ephemeral=True,
+            )
+        if str(self.confirmation.value).strip().upper() != "APAGAR RESTO":
+            return await interaction.response.send_message(
+                "Texto incorreto. Nada foi excluído. Volte à prévia e recomece a confirmação.", ephemeral=True,
+            )
+        await interaction.response.defer(ephemeral=True, thinking=True)
+        try:
+            current_plan = await self.cog.build_cleanup_plan(interaction.guild)
+            if current_plan["blockers"]:
+                return await interaction.followup.send(
+                    "A limpeza foi interrompida porque há impedimentos novos. Nada foi excluído.\n" +
+                    "\n".join(f"• {item}" for item in current_plan["blockers"][:10]), ephemeral=True,
+                )
+            if current_plan["signature"] != self.plan_signature:
+                return await interaction.followup.send(
+                    "A lista de recursos mudou desde a prévia. Nada foi excluído. Gere outra prévia e um novo backup.",
+                    ephemeral=True,
+                )
+            result = await self.cog.execute_cleanup_plan(interaction.guild, interaction.user.id, current_plan)
+            await interaction.followup.send(result[:1900], ephemeral=True)
+        except Exception as exc:
+            log.exception("Falha executando limpeza destrutiva no servidor %s", self.guild_id)
+            await interaction.followup.send(
+                f"A limpeza encontrou uma falha ({type(exc).__name__}). A operação pode ter sido parcial; consulte a auditoria e os logs.",
+                ephemeral=True,
+            )
 
 
 class SimpleActionView(AdminBaseView):
@@ -511,7 +670,7 @@ class Admin(commands.Cog):
                 title="Organização Quase Pro · Pré-visualização",
                 description=(
                     f"Estrutura comunitária simplificada: {len(ORGANIZATION)} categorias e {count_channels()} canais. "
-                    "A aplicação reaproveita canais equivalentes e preserva mensagens. Canais redundantes são movidos para 🗄️・ARQUIVO ANTIGO, visível apenas à equipe; nada é excluído."
+                    "A aplicação normal reaproveita canais equivalentes e preserva mensagens. Canais redundantes são movidos para 🗄️・ARQUIVO ANTIGO, visível apenas à equipe; para excluir excedentes existe uma etapa destrutiva separada, exclusiva do dono."
                 ),
                 color=0xD4AF37,
             )
@@ -1172,6 +1331,444 @@ class Admin(commands.Cog):
         if errors:
             parts.append("**Avisos/falhas parciais:**\n" + "\n".join(f"• {line}" for line in errors[:12]))
             parts.append("Verifique **/adm → Diagnóstico** e a hierarquia do cargo do bot antes de repetir a aplicação.")
+        return "\n".join(parts)
+
+    @staticmethod
+    def _cleanup_signature(plan: dict) -> str:
+        def channel_record(item, include_overwrites=True):
+            overwrites = []
+            if include_overwrites:
+                try:
+                    for target, overwrite in item.overwrites.items():
+                        allow, deny = overwrite.pair()
+                        overwrites.append((int(getattr(target, "id", 0) or 0), int(allow.value), int(deny.value)))
+                except Exception:
+                    pass
+            return (
+                int(item.id), str(getattr(item, "name", "")),
+                int(getattr(item, "category_id", 0) or 0), str(getattr(item, "type", "unknown")),
+                int(getattr(item, "position", 0) or 0),
+                int(getattr(item, "last_message_id", 0) or 0), tuple(sorted(overwrites)),
+            )
+
+        def category_record(item):
+            return channel_record(item, include_overwrites=True)
+
+        def candidate_role_record(item):
+            # A mudança na associação de um cargo candidato exige um novo backup.
+            members = tuple(sorted(int(member.id) for member in getattr(item, "members", [])))
+            return (int(item.id), str(item.name), int(item.position), int(item.permissions.value), members)
+
+        def target_role_record(item):
+            # Mudanças na associação de cargos-alvo (ex.: um novo membro verificado) não
+            # invalidam a limpeza, pois esses cargos não serão apagados.
+            return (int(item.id), str(item.name))
+
+        payload = {
+            "channels": sorted(channel_record(item) for item in plan["channels"]),
+            "categories": sorted(category_record(item) for item in plan["categories"]),
+            "roles": sorted(candidate_role_record(item) for item in plan["roles"]),
+            "target_channels": sorted(channel_record(item, include_overwrites=False) for item in plan["target_channels"]),
+            "target_categories": sorted(category_record(item) for item in plan["target_categories"]),
+            "target_roles": sorted(target_role_record(item) for item in plan["target_roles"]),
+            "protected_clan_categories": sorted(plan["protected_clan_category_ids"]),
+            "protected_clan_channels": sorted(plan["protected_clan_channel_ids"]),
+        }
+        encoded = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        return hashlib.sha256(encoded).hexdigest()
+
+    async def build_cleanup_plan(self, guild: discord.Guild) -> dict:
+        """Build a non-destructive inventory; never infer that a failed lookup is safe to delete."""
+        blockers: list[str] = []
+        me = guild.me or guild.get_member(self.bot.user.id if self.bot.user else 0)
+        if not me:
+            blockers.append("O bot não foi localizado como membro do servidor.")
+        elif not me.guild_permissions.manage_channels or not me.guild_permissions.manage_roles:
+            blockers.append("O bot precisa de Gerenciar Canais e Gerenciar Cargos para fazer a limpeza completa.")
+
+        target_categories = []
+        target_channels = []
+        target_category_ids: set[int] = set()
+        expected_channels_by_category: dict[int, set[int]] = {}
+        # Só permite exclusão quando todas as categorias e canais canônicos da nova estrutura
+        # já existem. Isso evita apagar o servidor caso a organização inicial tenha falhado.
+        for category_name, _category_key, _aliases, channel_defs in self.organization_plan():
+            category = next((item for item in guild.categories if item.name == category_name), None)
+            if category is None:
+                blockers.append(f"Categoria-alvo ausente: {category_name}. Aplique a organização antes da limpeza.")
+                continue
+            target_categories.append(category)
+            target_category_ids.add(category.id)
+            expected_channels_by_category[category.id] = set()
+            for channel_name, kind, _setting_key, _aliases2, _special_access in channel_defs:
+                channel = next((item for item in category.channels if item.name == channel_name and (
+                    isinstance(item, discord.VoiceChannel) if kind == "voice" else isinstance(item, discord.TextChannel)
+                )), None)
+                if channel is None:
+                    blockers.append(f"Canal-alvo ausente ou de tipo incorreto: {category_name} / {channel_name}.")
+                    continue
+                target_channels.append(channel)
+                expected_channels_by_category[category.id].add(channel.id)
+
+        # Categorias/canais pertencentes a clãs ativos ou degradados fazem parte da nova
+        # organização mesmo que sejam criados dinamicamente e não estejam em ORGANIZATION.
+        protected_clan_category_ids: set[int] = set()
+        protected_clan_channel_ids: set[int] = set()
+        try:
+            clan_rows = await self.bot.db._all(
+                "SELECT id,category_id,chat_channel_id,announcements_id,strategies_id,voice_channel_id "
+                "FROM clans WHERE guild_id=? AND status IN ('active','degraded')",
+                (int(guild.id),),
+            )
+            for row in clan_rows:
+                for field in ("category_id",):
+                    if row[field]:
+                        protected_clan_category_ids.add(int(row[field]))
+                for field in ("chat_channel_id", "announcements_id", "strategies_id", "voice_channel_id"):
+                    if row[field]:
+                        protected_clan_channel_ids.add(int(row[field]))
+        except Exception:
+            log.exception("Não foi possível conferir os canais dos clãs antes da limpeza no servidor %s", guild.id)
+            blockers.append("Não foi possível validar os recursos de clãs ativos; limpeza bloqueada por segurança.")
+
+        # Resolve each target role using stored IDs first, then canonical/legacy aliases.
+        target_roles = []
+        target_role_ids: set[int] = set()
+        setting_role_ids: set[int] = set()
+        for definition in ROLE_DEFINITIONS:
+            setting_keys = [f"role_{definition['key']}_id"]
+            mapped_setting = ROLE_SETTING_KEYS.get(definition["key"])
+            if mapped_setting:
+                setting_keys.append(mapped_setting)
+            local_configured_ids: list[int] = []
+            for setting_key in setting_keys:
+                value = await get_setting(self.bot, guild.id, setting_key, 0)
+                try:
+                    configured = guild.get_role(int(value)) if value else None
+                except (TypeError, ValueError):
+                    configured = None
+                if configured:
+                    setting_role_ids.add(configured.id)
+                    local_configured_ids.append(configured.id)
+            name_aliases = {normalize_name(definition["name"])}
+            name_aliases.update(normalize_name(alias) for alias in definition.get("aliases", ()))
+            configured_role = next((guild.get_role(role_id) for role_id in local_configured_ids if guild.get_role(role_id)), None)
+            role = configured_role or next((item for item in guild.roles if normalize_name(item.name) in name_aliases), None)
+            if role is None:
+                blockers.append(f"Cargo-alvo ausente: {definition['name']}. Aplique a organização antes da limpeza.")
+            else:
+                if role.id not in target_role_ids:
+                    target_roles.append(role)
+                    target_role_ids.add(role.id)
+        # Configurações legadas ainda válidas são preservadas. Se apontarem para recurso
+        # não pertencente à organização, serão reportadas como impedimento abaixo.
+        target_role_ids.update(setting_role_ids)
+        target_roles = list({role.id: role for role in target_roles + [guild.get_role(rid) for rid in setting_role_ids if guild.get_role(rid)]}.values())
+
+        candidate_categories = [
+            category for category in guild.categories
+            if category.id not in target_category_ids and category.id not in protected_clan_category_ids
+        ]
+        candidate_category_ids = {category.id for category in candidate_categories}
+        candidate_channels = []
+        for channel in guild.channels:
+            if isinstance(channel, discord.CategoryChannel):
+                continue
+            if channel.id in protected_clan_channel_ids or getattr(channel, "category_id", None) in protected_clan_category_ids:
+                continue
+            parent_id = getattr(channel, "category_id", None)
+            if parent_id in target_category_ids:
+                if channel.id not in expected_channels_by_category.get(parent_id, set()):
+                    candidate_channels.append(channel)
+            else:
+                # Todo canal fora das categorias canônicas ou dos espaços dos clãs ativos
+                # será listado para exclusão, incluindo canais sem categoria e o arquivo antigo.
+                candidate_channels.append(channel)
+
+        # Um cargo extra que ainda aparece nos overwrites de recursos preservados não pode
+        # ser removido sem antes reparar essas permissões, pois isso alteraria acesso a áreas
+        # que permanecerão no servidor.
+        preserved_channel_objects = list(target_categories) + list(target_channels)
+        for channel_id in protected_clan_category_ids | protected_clan_channel_ids:
+            channel_obj = guild.get_channel(channel_id)
+            if channel_obj is not None:
+                preserved_channel_objects.append(channel_obj)
+        overwrite_role_ids: set[int] = set()
+        for preserved_channel in preserved_channel_objects:
+            try:
+                for overwrite_target in preserved_channel.overwrites:
+                    if isinstance(overwrite_target, discord.Role) and overwrite_target.id not in target_role_ids and not overwrite_target.is_default() and not overwrite_target.managed:
+                        overwrite_role_ids.add(overwrite_target.id)
+            except Exception:
+                blockers.append(f"Não foi possível validar sobrescritas de permissões de {getattr(preserved_channel, 'name', preserved_channel.id)}; limpeza bloqueada.")
+
+        me_role_ids = {role.id for role in me.roles} if me else set()
+        candidate_roles = []
+        skipped_roles = []
+        for role in guild.roles:
+            if role.is_default() or role.id in target_role_ids:
+                continue
+            if role.id in overwrite_role_ids:
+                skipped_roles.append((role, "ainda aparece nas permissões de um canal/categoria preservado"))
+                blockers.append(f"O cargo {role.name} ainda controla permissões de um recurso preservado; reaplique/corrija essas permissões antes de excluí-lo.")
+            elif role.managed:
+                skipped_roles.append((role, "cargo gerenciado pelo Discord/integração"))
+            elif role.id in me_role_ids:
+                skipped_roles.append((role, "atribuído ao próprio bot; necessário para operar"))
+            elif me and role >= me.top_role:
+                skipped_roles.append((role, "acima da hierarquia do bot; a API não permite apagar"))
+            else:
+                candidate_roles.append(role)
+
+        # Não exclui canais/categorias/cargos ainda apontados por configurações persistentes.
+        channel_ids = {item.id for item in candidate_channels}
+        category_ids = {item.id for item in candidate_categories}
+        role_ids = {item.id for item in candidate_roles}
+        try:
+            settings_rows = await self.bot.db._all(
+                "SELECT key,value FROM guild_settings WHERE guild_id=?", (int(guild.id),),
+            )
+            for row in settings_rows:
+                key = str(row["key"])
+                try:
+                    ref_id = int(row["value"])
+                except (TypeError, ValueError):
+                    continue
+                if (key.endswith("_channel_id") or key.endswith("_category_id")) and ref_id in channel_ids | category_ids:
+                    item = guild.get_channel(ref_id)
+                    blockers.append(f"{getattr(item, 'name', ref_id)} ainda está associado à configuração `{key}`; reaplique/corrija as associações antes de excluir.")
+                if (key.endswith("_role_id") or (key.startswith("role_") and key.endswith("_id"))) and ref_id in role_ids:
+                    item = guild.get_role(ref_id)
+                    blockers.append(f"O cargo {getattr(item, 'name', ref_id)} ainda está associado à configuração `{key}`; corrija a associação antes de excluir.")
+        except Exception:
+            log.exception("Não foi possível validar referências de configuração antes da limpeza no servidor %s", guild.id)
+            blockers.append("Não foi possível verificar todas as referências persistentes; limpeza bloqueada por segurança.")
+
+        plan = {
+            "blockers": list(dict.fromkeys(blockers)),
+            "categories": candidate_categories,
+            "channels": candidate_channels,
+            "roles": candidate_roles,
+            "skipped_roles": skipped_roles,
+            "target_categories": target_categories,
+            "target_channels": target_channels,
+            "target_roles": target_roles,
+            "protected_clan_category_ids": protected_clan_category_ids,
+            "protected_clan_channel_ids": protected_clan_channel_ids,
+        }
+        plan["signature"] = self._cleanup_signature(plan)
+        return plan
+
+    def cleanup_preview_embed(self, guild: discord.Guild, plan: dict) -> discord.Embed:
+        """Describe exact candidates; long inventories are included in the downloadable backup manifest."""
+        embed = discord.Embed(
+            title="Quase Pro · Prévia de limpeza destrutiva",
+            description=(
+                "**Esta ação apagará permanentemente os recursos listados.** Canais excluídos perdem o histórico de mensagens; "
+                "o backup não consegue restaurar mensagens, threads ou anexos hospedados pelo Discord. "
+                "A execução exige backup entregue ao dono do servidor e confirmação digitando `APAGAR RESTO`."
+            ), color=0xC0392B,
+        )
+        embed.add_field(name="Canais a excluir", value=str(len(plan["channels"])), inline=True)
+        embed.add_field(name="Categorias a excluir", value=str(len(plan["categories"])), inline=True)
+        embed.add_field(name="Cargos a excluir", value=str(len(plan["roles"])), inline=True)
+        embed.add_field(name="Espaços de clãs preservados", value=(
+            f"{len(plan['protected_clan_category_ids'])} categorias · {len(plan['protected_clan_channel_ids'])} canais"), inline=True)
+        embed.add_field(name="Cargos que serão preservados fora da lista-alvo", value=str(len(plan["skipped_roles"])), inline=True)
+
+        def format_lines(items, name_fn, max_lines=10):
+            if not items:
+                return "Nenhum."
+            lines = [name_fn(item) for item in items[:max_lines]]
+            if len(items) > max_lines:
+                lines.append(f"… e mais {len(items) - max_lines}; o inventário completo ficará no backup.")
+            return "\n".join(lines)[:1024]
+
+        embed.add_field(name="Canais excedentes (amostra)", value=format_lines(
+            plan["channels"], lambda item: f"• {item.name} (`{item.id}`)"), inline=False)
+        embed.add_field(name="Categorias excedentes (amostra)", value=format_lines(
+            plan["categories"], lambda item: f"• {item.name} (`{item.id}`)"), inline=False)
+        embed.add_field(name="Cargos excedentes (amostra)", value=format_lines(
+            plan["roles"], lambda item: f"• {item.name} (`{item.id}`; {len(getattr(item, 'members', []))} membros)"), inline=False)
+        if plan["skipped_roles"]:
+            embed.add_field(name="Cargos preservados/limitação do Discord", value=format_lines(
+                plan["skipped_roles"], lambda pair: f"• {pair[0].name}: {pair[1]}"), inline=False)
+        if plan["blockers"]:
+            embed.add_field(name="IMPEDIMENTOS — nada pode ser apagado", value="\n".join(
+                f"• {item}" for item in plan["blockers"][:8])[:1024], inline=False)
+            embed.set_footer(text="Corrija os impedimentos e aplique a estrutura completa antes de gerar outra prévia.")
+        else:
+            embed.set_footer(text="Apenas o dono do servidor pode continuar. O inventário completo será anexado ao backup antes da confirmação final.")
+        return embed
+
+    async def create_cleanup_backup(self, guild: discord.Guild, plan: dict) -> str:
+        """Bundle database snapshots and a metadata manifest before any deletion is allowed."""
+        db_backup = await self.create_backup()
+        try:
+            with zipfile.ZipFile(db_backup, "r") as database_archive:
+                database_names = database_archive.namelist()
+                if not database_names or "soulsbot.db" not in database_names:
+                    raise RuntimeError("O backup não contém o banco principal soulsbot.db; a limpeza foi bloqueada.")
+        except Exception:
+            try:
+                os.remove(db_backup)
+            except OSError:
+                pass
+            raise
+        manifest_fd, manifest_path = tempfile.mkstemp(prefix="quasepro-server-state-", suffix=".json")
+        os.close(manifest_fd)
+        target_fd, target_path = tempfile.mkstemp(prefix="quasepro-cleanup-backup-", suffix=".zip")
+        os.close(target_fd)
+        completed = False
+        try:
+            def overwrite_records(channel):
+                result = []
+                try:
+                    for target, overwrite in channel.overwrites.items():
+                        allow, deny = overwrite.pair()
+                        result.append({
+                            "target_id": getattr(target, "id", None),
+                            "target_name": getattr(target, "name", None),
+                            "target_type": "role" if isinstance(target, discord.Role) else "member",
+                            "allow_bits": int(allow.value), "deny_bits": int(deny.value),
+                        })
+                except Exception:
+                    return result
+                return result
+
+            channels_manifest = []
+            for channel in guild.channels:
+                channels_manifest.append({
+                    "id": channel.id, "name": channel.name, "type": str(getattr(channel, "type", "unknown")),
+                    "category_id": getattr(channel, "category_id", None),
+                    "category_name": getattr(getattr(channel, "category", None), "name", None),
+                    "position": getattr(channel, "position", None),
+                    "last_message_id": getattr(channel, "last_message_id", None),
+                    "topic": getattr(channel, "topic", None),
+                    "nsfw": getattr(channel, "nsfw", None),
+                    "slowmode_delay": getattr(channel, "slowmode_delay", None),
+                    "bitrate": getattr(channel, "bitrate", None),
+                    "user_limit": getattr(channel, "user_limit", None),
+                    "overwrites": overwrite_records(channel),
+                })
+            roles_manifest = []
+            for role in guild.roles:
+                roles_manifest.append({
+                    "id": role.id, "name": role.name, "color": getattr(getattr(role, "colour", None), "value", 0),
+                    "position": role.position, "permissions_bits": role.permissions.value,
+                    "hoist": role.hoist, "mentionable": role.mentionable, "managed": role.managed,
+                    "member_ids_cached": [member.id for member in getattr(role, "members", [])],
+                })
+            manifest = {
+                "generated_at": datetime.now(timezone.utc).isoformat(),
+                "guild_id": guild.id, "guild_name": guild.name,
+                "warning": "Metadata-only Discord snapshot. It cannot restore deleted Discord messages, threads, or attachments.",
+                "planned_deletion": {
+                    "channels": [{"id": item.id, "name": item.name, "category_id": getattr(item, "category_id", None)} for item in plan["channels"]],
+                    "categories": [{"id": item.id, "name": item.name} for item in plan["categories"]],
+                    "roles": [{"id": item.id, "name": item.name, "position": item.position, "permissions_bits": item.permissions.value,
+                               "member_ids_cached": [member.id for member in getattr(item, "members", [])]} for item in plan["roles"]],
+                },
+                "channels": channels_manifest,
+                "roles": roles_manifest,
+                "preserved_clan_category_ids": sorted(plan["protected_clan_category_ids"]),
+                "preserved_clan_channel_ids": sorted(plan["protected_clan_channel_ids"]),
+                "preserved_role_ids": [item.id for item in plan["target_roles"]],
+            }
+            with open(manifest_path, "w", encoding="utf-8") as stream:
+                json.dump(manifest, stream, ensure_ascii=False, indent=2)
+            with zipfile.ZipFile(target_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+                archive.write(db_backup, "database-backup.zip")
+                archive.write(manifest_path, "server-state-and-deletion-manifest.json")
+            completed = True
+            return target_path
+        finally:
+            for path in (db_backup, manifest_path):
+                try:
+                    os.remove(path)
+                except OSError:
+                    pass
+            if not completed:
+                try:
+                    os.remove(target_path)
+                except OSError:
+                    pass
+
+    async def execute_cleanup_plan(self, guild: discord.Guild, actor_id: int, plan: dict) -> str:
+        """Execute only the reviewed plan; recheck ownership, permissions and signature first."""
+        if int(actor_id) != int(guild.owner_id):
+            raise PermissionError("Only the guild owner may run destructive cleanup")
+        me = guild.me or guild.get_member(self.bot.user.id if self.bot.user else 0)
+        if not me or not me.guild_permissions.manage_channels or not me.guild_permissions.manage_roles:
+            raise PermissionError("Bot requires Manage Channels and Manage Roles")
+        fresh = await self.build_cleanup_plan(guild)
+        if fresh["blockers"] or fresh["signature"] != plan["signature"]:
+            raise RuntimeError("Cleanup plan became stale or blocked before execution")
+
+        channel_deleted = category_deleted = role_deleted = 0
+        failures: list[str] = []
+        await audit(
+            self.bot, guild.id, actor_id, "destructive_cleanup_started", "server-resources",
+            before=(f"channels={len(plan['channels'])};categories={len(plan['categories'])};roles={len(plan['roles'])}"),
+            result="started",
+        )
+        # Delete non-category channels first. Deleting parent channels also deletes their
+        # Discord-hosted message history and threads, which the backup cannot restore.
+        for item in sorted(plan["channels"], key=lambda channel: (getattr(channel, "category_id", 0) or 0, channel.id)):
+            channel = guild.get_channel(item.id)
+            if channel is None:
+                continue
+            try:
+                await channel.delete(reason="Quase Pro: dono confirmou limpeza dos recursos fora da organização atual")
+                channel_deleted += 1
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failures.append(f"Canal {item.name} (`{item.id}`): {type(exc).__name__}")
+
+        for item in plan["categories"]:
+            category = guild.get_channel(item.id)
+            if not isinstance(category, discord.CategoryChannel):
+                continue
+            if category.channels:
+                failures.append(f"Categoria {category.name} mantida porque ainda contém canais após falhas parciais.")
+                continue
+            try:
+                await category.delete(reason="Quase Pro: dono confirmou limpeza dos recursos fora da organização atual")
+                category_deleted += 1
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failures.append(f"Categoria {item.name} (`{item.id}`): {type(exc).__name__}")
+
+        live_me = guild.me or guild.get_member(self.bot.user.id if self.bot.user else 0)
+        bot_role_ids = {role.id for role in live_me.roles} if live_me else set()
+        for item in sorted(plan["roles"], key=lambda role: role.position):
+            role = guild.get_role(item.id)
+            if role is None:
+                continue
+            if role.is_default() or role.managed or role.id in bot_role_ids or (live_me and role >= live_me.top_role):
+                failures.append(f"Cargo {role.name} preservado porque é gerenciado, necessário ao bot ou está fora da hierarquia.")
+                continue
+            try:
+                await role.delete(reason="Quase Pro: dono confirmou limpeza dos cargos fora da organização atual")
+                role_deleted += 1
+            except (discord.Forbidden, discord.HTTPException) as exc:
+                failures.append(f"Cargo {role.name} (`{role.id}`): {type(exc).__name__}")
+
+        await audit(
+            self.bot, guild.id, actor_id, "destructive_cleanup_completed", "server-resources",
+            after=(f"channels_deleted={channel_deleted};categories_deleted={category_deleted};roles_deleted={role_deleted};failures={len(failures)}"),
+            result="partial" if failures else "success",
+        )
+        parts = [
+            "**Limpeza destrutiva concluída.**",
+            f"Canais excluídos: **{channel_deleted}** · categorias vazias excluídas: **{category_deleted}** · cargos excluídos: **{role_deleted}**.",
+            "Foram preservados: as categorias/canais definidos na nova organização, espaços registrados de clãs ativos/degradados, cargos-alvo, cargos gerenciados e cargos necessários ao bot.",
+            f"Cargos excedentes preservados por limitação da hierarquia/integração: **{len(plan['skipped_roles'])}**.",
+            "O backup de bancos e metadados foi enviado antes da confirmação; ele não restaura mensagens, threads ou anexos do Discord.",
+        ]
+        if plan["skipped_roles"]:
+            parts.append("**Cargos preservados:** " + "; ".join(f"{role.name} — {reason}" for role, reason in plan["skipped_roles"][:8]))
+        if failures:
+            parts.append("**Itens não excluídos / falhas parciais:**\n" + "\n".join(f"• {line}" for line in failures[:12]))
+            parts.append("Revise o diagnóstico e o registro de auditoria; não repita sem analisar as falhas parciais.")
         return "\n".join(parts)
 
     async def diagnostics(self, guild: discord.Guild) -> list[str]:
