@@ -22,8 +22,11 @@ from server_structure import (
     CHANNEL_SETTINGS_LABELS,
     ORGANIZATION,
     ROLE_DEFINITIONS,
-    ROLE_GROUP_ORDER,
     ROLE_SETTING_KEYS,
+    STAFF_ROLE_ORDER,
+    category_access_mode,
+    count_channels,
+    managed_role_hierarchy_keys,
     normalize_name,
     validate_role_palette,
 )
@@ -316,8 +319,9 @@ class OrganizationPreviewView(AdminBaseView):
     async def apply_plan(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=(
             "A aplicação vai criar/renomear categorias e canais para a estrutura Quase Pro, mover canais existentes preservando o histórico, "
-            "criar/ajustar os 34 cargos com cores distintas e vincular patentes aos níveis já existentes. Nenhum canal, mensagem ou dado será excluído. "
-            "As permissões da categoria privada da equipe serão normalizadas. Confirma?"), embed=None,
+            "criar/ajustar os 34 cargos com cores distintas, ordenar patentes do nível mais alto ao mais baixo e vincular patentes aos níveis já existentes. "
+            "Nenhum canal, mensagem ou dado será excluído. As permissões da categoria privada da equipe serão normalizadas. "
+            "Importante: o Discord exige que os cargos da equipe fiquem manualmente acima do cargo real do bot; o bot organizará os cargos funcionais abaixo dele. Confirma?"), embed=None,
             view=ConfirmOrganizationView(self.cog, self.guild_id))
 
 
@@ -488,7 +492,10 @@ class Admin(commands.Cog):
             embed.description += "\n\n" + "\n".join(lines)
             return embed, CategoryConfigView(self, guild.id)
         if section == "roles":
-            embed = discord.Embed(title="Configuração de cargos", description="Os IDs de cargos são resolvidos pelos seletores nativos do Discord. O bot não concede permissões administrativas automaticamente.", color=0xC0C0C0)
+            embed = discord.Embed(title="Configuração de cargos", description=(
+                "Os cargos são resolvidos pelos seletores nativos. A organização aplica perfis predefinidos aos cargos que consegue gerir; "
+                "a atribuição dos cargos de equipe aos membros continua manual. O cargo Fundador tem Administrador e deve ser atribuído com cautela."
+            ), color=0xC0C0C0)
             lines = []
             for key, (label, default) in ROLES.items():
                 val = await get_setting(self.bot, guild.id, key, 0)
@@ -500,7 +507,7 @@ class Admin(commands.Cog):
             embed = discord.Embed(
                 title="Organização Quase Pro · Pré-visualização",
                 description=(
-                    "Estrutura definida conforme o plano do servidor: 10 categorias e 62 canais. "
+                    f"Estrutura definida conforme o plano do servidor: 10 categorias e {count_channels()} canais. "
                     "A aplicação reaproveita canais equivalentes e preserva mensagens, renomeando/movendo quando necessário. "
                     "Não exclui canais, mensagens, cargos nem dados."
                 ),
@@ -513,15 +520,15 @@ class Admin(commands.Cog):
             embed.add_field(
                 name="Cargos e progressão",
                 value=(f"{len(ROLE_DEFINITIONS)} cargos padronizados com cores únicas. "
-                       "As 10 patentes preservam os requisitos atuais do Soulsbot: níveis "
+                       "A hierarquia das patentes vai da maior para a menor; os requisitos do Soulsbot são preservados: níveis "
                        + ", ".join(str(minimo) for minimo, _nome in __import__('levels').PATENTES)
                        + ". Nenhum XP, nível ou recompensa será recalculado."),
                 inline=False,
             )
             embed.add_field(
                 name="Permissões",
-                value="Portões, comunidade, Soulslike, catálogo e canais públicos ficam acessíveis conforme permissões gerais. "
-                      "BASTIDORES DA ORDEM permanece privado; suporte e desenvolvedor recebem apenas acessos próprios quando necessário.",
+                value="Portões, comunidade, Soulslike e catálogo seguem a política de verificação. BASTIDORES DA ORDEM permanece privado. "
+                      "Para hierarquia segura, mantenha Fundador > Administrador > Moderador > Suporte > Desenvolvedor acima do cargo real do bot; patentes, clãs, comunidade e interesses ficam abaixo do bot.",
                 inline=False,
             )
             return embed, OrganizationPreviewView(self, guild.id)
@@ -599,6 +606,12 @@ class Admin(commands.Cog):
         return permissions
 
     async def _ensure_organization_roles(self, guild: discord.Guild, actor_id: int):
+        """Create/update role metadata and order only roles below the bot.
+
+        Discord explicitly prevents bots from editing or positioning roles at or above
+        their highest role. Staff roles therefore require a one-time manual move above
+        the bot role; all XP, clan, community and interest roles are ordered below it.
+        """
         me = guild.me or guild.get_member(self.bot.user.id if self.bot.user else 0)
         if not me or not me.guild_permissions.manage_roles:
             return {}, 0, 0, ["O bot não possui **Gerenciar Cargos**; nenhum cargo foi criado ou ajustado."]
@@ -608,13 +621,44 @@ class Admin(commands.Cog):
         role_objects = {}
         created = updated = 0
         errors = []
+
+        async def persist_role_links(definition, role):
+            generic_key = f"role_{definition['key']}_id"
+            current_generic = await get_setting(self.bot, guild.id, generic_key, 0)
+            if int(current_generic or 0) != role.id:
+                await set_setting(self.bot, guild.id, actor_id, generic_key, role.id)
+            mapped_key = ROLE_SETTING_KEYS.get(definition["key"])
+            if mapped_key:
+                current_id = await get_setting(self.bot, guild.id, mapped_key, 0)
+                if int(current_id or 0) != role.id:
+                    await set_setting(self.bot, guild.id, actor_id, mapped_key, role.id)
+
         for definition in ROLE_DEFINITIONS:
             target_name = definition["name"]
             aliases = {normalize_name(target_name)} | {normalize_name(x) for x in definition.get("aliases", ())}
-            role = next((r for r in guild.roles if normalize_name(r.name) in aliases), None)
+            mapped_key = ROLE_SETTING_KEYS.get(definition["key"])
+            role = None
+            created_this_run = False
+
+            # For administrative roles, preserve the role already configured as the
+            # source of truth before looking for a duplicate by display name.
+            if mapped_key:
+                configured_id = await get_setting(self.bot, guild.id, mapped_key, 0)
+                configured_role = guild.get_role(int(configured_id)) if configured_id else None
+                if configured_role and not configured_role.is_default():
+                    role = configured_role
+            if role is None:
+                generic_id = await get_setting(self.bot, guild.id, f"role_{definition['key']}_id", 0)
+                generic_role = guild.get_role(int(generic_id)) if generic_id else None
+                if generic_role and not generic_role.is_default():
+                    role = generic_role
+            if role is None:
+                role = next((r for r in guild.roles if not r.is_default() and normalize_name(r.name) in aliases), None)
+
             permissions = self._role_permissions(definition.get("permissions", "none"))
             color = discord.Colour(int(definition["color"]))
             hoist = definition.get("group") in {"staff", "rank"}
+
             if role is None:
                 try:
                     role = await guild.create_role(
@@ -623,26 +667,58 @@ class Admin(commands.Cog):
                         reason="Quase Pro /adm: identidade visual e cargos oficiais",
                     )
                     created += 1
+                    created_this_run = True
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     errors.append(f"Cargo {target_name}: {type(exc).__name__}")
                     continue
             else:
                 if role.managed:
-                    errors.append(f"Cargo {target_name}: cargo gerenciado pelo Discord, não editável pelo bot.")
+                    # Bot/integration roles are owned by Discord. Never try to rename,
+                    # recolor or reposition them; the integrated bot's own role remains
+                    # the actual hierarchy boundary, not a decorative label at the bottom.
                     role_objects[definition["key"]] = role
+                    await persist_role_links(definition, role)
+                    if definition.get("group") != "technical":
+                        errors.append(f"Cargo {target_name}: cargo gerenciado por integração; não pode ser editado pelo bot.")
                     continue
-                if role >= me.top_role:
-                    errors.append(f"Cargo {target_name}: está acima/na hierarquia do bot; mova o cargo do bot para cima.")
-                    role_objects[definition["key"]] = role
-                    continue
+
+                effective_permissions = permissions
+                if definition.get("group") == "staff" and not created_this_run and role.permissions != permissions:
+                    # An existing staff role may already be assigned. Do not silently
+                    # elevate/downgrade any existing role while the hierarchy is being repaired;
+                    # preserve its current permission bitset and flag a manual review.
+                    effective_permissions = role.permissions
+                    errors.append(
+                        f"Cargo de equipe preexistente {target_name}: as permissões atuais foram preservadas para evitar mudanças silenciosas. "
+                        "Revise-as manualmente depois de corrigir a hierarquia."
+                    )
                 needs_update = (
                     role.name != target_name or role.colour.value != color.value
-                    or role.permissions != permissions or role.hoist != hoist or role.mentionable
+                    or role.permissions != effective_permissions or role.hoist != hoist or role.mentionable
                 )
+                if role >= me.top_role:
+                    # This is a valid position for staff roles, but Discord does not let
+                    # the bot edit roles above itself. For lower-tier roles, this is a
+                    # hierarchy error and must be corrected manually before assignment.
+                    role_objects[definition["key"]] = role
+                    await persist_role_links(definition, role)
+                    if definition.get("group") == "staff":
+                        if needs_update:
+                            errors.append(
+                                f"Cargo de equipe {target_name} está acima do bot e não pode ser padronizado pela API. "
+                                "Confira manualmente nome, cor e permissões."
+                            )
+                    else:
+                        errors.append(
+                            f"Cargo funcional {target_name} está no mesmo nível/acima do cargo do bot. "
+                            "Mova o cargo do bot acima dele e execute /adm novamente."
+                        )
+                    continue
+
                 if needs_update:
                     try:
                         await role.edit(
-                            name=target_name, colour=color, permissions=permissions,
+                            name=target_name, colour=color, permissions=effective_permissions,
                             hoist=hoist, mentionable=False,
                             reason="Quase Pro /adm: padronização de cargo e cor",
                         )
@@ -650,64 +726,79 @@ class Admin(commands.Cog):
                     except (discord.Forbidden, discord.HTTPException) as exc:
                         errors.append(f"Cargo {target_name}: {type(exc).__name__}")
                         role_objects[definition["key"]] = role
+                        await persist_role_links(definition, role)
                         continue
 
             role_objects[definition["key"]] = role
-            # Persistência técnica de todos os IDs de cargo, isolada por servidor.
-            generic_key = f"role_{definition['key']}_id"
-            current_generic = await get_setting(self.bot, guild.id, generic_key, 0)
-            if int(current_generic or 0) != role.id:
-                await set_setting(self.bot, guild.id, actor_id, generic_key, role.id)
-            # Preserva apenas os cargos admin/moderação que já estejam válidos: trocá-los
-            # silenciosamente poderia bloquear a equipe atual. Os demais vínculos passam
-            # para os cargos oficiais recém-padronizados.
-            mapped_key = ROLE_SETTING_KEYS.get(definition["key"])
-            if mapped_key:
-                current_id = await get_setting(self.bot, guild.id, mapped_key, 0)
-                current_role = guild.get_role(int(current_id)) if current_id else None
-                preserve_existing = mapped_key in {"admin_role_id", "moderation_role_id"} and current_role is not None
-                if not preserve_existing and int(current_id or 0) != role.id:
-                    await set_setting(self.bot, guild.id, actor_id, mapped_key, role.id)
+            await persist_role_links(definition, role)
 
-        # Ordena os cargos administrados para que patentes fiquem acima dos cargos
-        # opcionais de interesse, preservando a capacidade de moderação. Nunca tenta
-        # mover cargos gerenciados ou que estejam acima do cargo mais alto do bot.
+        # Put the managed roles directly below the bot, ordered top-to-bottom. Staff
+        # roles are deliberately excluded: Discord forbids moving them above the bot.
         try:
             ordered_roles = []
-
-            def add_position_role(role):
-                if role and not role.managed and role < me.top_role and role not in ordered_roles:
+            for key in managed_role_hierarchy_keys():
+                role = role_objects.get(key)
+                if not role or role.managed:
+                    continue
+                if role >= me.top_role:
+                    errors.append(
+                        f"Cargo funcional {role.name} está no mesmo nível/acima do cargo do bot; "
+                        "ele foi omitido da ordenação automática."
+                    )
+                    continue
+                if role not in ordered_roles:
                     ordered_roles.append(role)
 
-            # Primeiro os cargos oficiais de maior autoridade; depois, cargos
-            # administrativos legados ainda associados; em seguida a moderação,
-            # o restante da equipe e por fim as patentes e cargos sem privilégios.
-            for key in ("founder", "administrator"):
-                add_position_role(role_objects.get(key))
-            admin_id = await get_setting(self.bot, guild.id, "admin_role_id", 0)
-            add_position_role(guild.get_role(int(admin_id)) if admin_id else None)
-            add_position_role(role_objects.get("moderator"))
-            moderation_id = await get_setting(self.bot, guild.id, "moderation_role_id", 0)
-            add_position_role(guild.get_role(int(moderation_id)) if moderation_id else None)
-            for key in ("support", "developer"):
-                add_position_role(role_objects.get(key))
-            for group in ROLE_GROUP_ORDER:
-                if group == "staff":
-                    continue
-                for definition in ROLE_DEFINITIONS:
-                    if definition["group"] == group:
-                        add_position_role(role_objects.get(definition["key"]))
             top_position = int(me.top_role.position)
             if ordered_roles and top_position > len(ordered_roles):
                 positions = {role: top_position - index - 1 for index, role in enumerate(ordered_roles)}
                 await guild.edit_role_positions(
                     positions=positions,
-                    reason="Quase Pro /adm: hierarquia oficial de cargos",
+                    reason="Quase Pro /adm: hierarquia oficial de cargos funcionais",
                 )
             elif ordered_roles:
-                errors.append("Hierarquia visual não reorganizada: mova o cargo mais alto do bot acima dos 34 cargos oficiais e tente novamente.")
+                errors.append(
+                    f"Não há posições suficientes abaixo do cargo do bot para ordenar {len(ordered_roles)} cargos. "
+                    "Mova o cargo do bot para cima dos cargos funcionais, mantendo-o abaixo da equipe."
+                )
         except (discord.Forbidden, discord.HTTPException) as exc:
-            errors.append(f"Não foi possível ordenar a hierarquia de cargos: {type(exc).__name__}.")
+            errors.append(f"Não foi possível ordenar a hierarquia dos cargos funcionais: {type(exc).__name__}.")
+
+        # Verify staff order. If missing/below the bot, the owner must drag those roles
+        # above the bot's managed role in Server Settings > Roles. This cannot be done
+        # through the bot API by design.
+        staff_roles = [role_objects.get(key) for key in STAFF_ROLE_ORDER]
+        missing_staff = [key for key, role in zip(STAFF_ROLE_ORDER, staff_roles) if role is None]
+        staff_below_bot = [
+            role for role in staff_roles
+            if role is not None and role.position <= me.top_role.position
+        ]
+        if missing_staff:
+            errors.append(
+                "Cargos de equipe não localizados: " + ", ".join(missing_staff) + ". "
+                "Crie/associe esses cargos e mantenha-os acima do cargo do bot."
+            )
+        if staff_below_bot:
+            expected_names = [
+                (role_objects[key].name if role_objects.get(key) else key)
+                for key in STAFF_ROLE_ORDER
+            ]
+            errors.append(
+                "Hierarquia da equipe exige uma etapa manual: mova os cargos para ACIMA do cargo real do bot "
+                "e ordene de cima para baixo assim: " + " > ".join(expected_names) + ". "
+                "A API do Discord não permite que o bot se coloque acima de si mesmo nem mova cargos para cima dele. "
+                "Não atribua esses cargos privilegiados a novos membros até concluir essa etapa."
+            )
+        elif all(staff_roles) and any(
+            staff_roles[index].position <= staff_roles[index + 1].position
+            for index in range(len(staff_roles) - 1)
+        ):
+            errors.append(
+                "Os cargos de equipe já estão acima do bot, mas sua ordem relativa está incorreta. "
+                "Ordene manualmente de cima para baixo: "
+                + " > ".join(role.name for role in staff_roles) + "."
+            )
+
         return role_objects, created, updated, errors
 
     def _find_existing_channel(self, guild, category, target_name, kind, aliases, used_ids):
@@ -745,6 +836,12 @@ class Admin(commands.Cog):
         if any("nenhum cargo foi criado" in message for message in role_errors):
             return "\n".join(role_errors)
 
+        verified_member_role = roles.get("member")
+        if verified_member_role is None:
+            return "Aplicação interrompida: não foi possível localizar/criar o cargo **🟢・Membro**. Nenhuma categoria foi alterada; corrija o cargo e tente novamente."
+        if verified_member_role >= me.top_role:
+            return "Aplicação interrompida: o cargo **🟢・Membro** está acima ou no mesmo nível do cargo do bot. Mova o cargo do bot para cima na hierarquia antes de aplicar a verificação. Nenhuma categoria foi alterada."
+
         admin_role_id = await get_setting(self.bot, guild.id, "admin_role_id", 0)
         mod_role_id = await get_setting(self.bot, guild.id, "moderation_role_id", 0)
         team_overwrites = {
@@ -764,16 +861,50 @@ class Admin(commands.Cog):
                     view_channel=True, send_messages=True, read_message_history=True,
                 )
 
+        # Além do cargo Membro verificado, a equipe autorizada deve conseguir
+        # diagnosticar os canais. Os cargos técnicos não recebem permissões admin.
+        public_staff_roles = {
+            roles.get(key) for key in ("founder", "administrator", "moderator", "support", "developer")
+            if roles.get(key) is not None
+        }
+        for rid in (int(admin_role_id or 0), int(mod_role_id or 0)):
+            role = guild.get_role(rid) if rid else None
+            if role is not None:
+                public_staff_roles.add(role)
+
+        verified_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=False),
+            me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True, manage_channels=True,
+            ),
+            verified_member_role: discord.PermissionOverwrite(view_channel=True),
+        }
+        for role in public_staff_roles:
+            verified_overwrites[role] = discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+            )
+
+        entry_overwrites = {
+            guild.default_role: discord.PermissionOverwrite(view_channel=True),
+            me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+        }
+
         used_channel_ids = set()
         for position, (category_name, category_key, aliases, channel_defs) in enumerate(self.organization_plan()):
             category = discord.utils.get(guild.categories, name=category_name)
             if category is None:
                 alias_names = {normalize_name(x) for x in aliases}
                 category = next((cat for cat in guild.categories if normalize_name(cat.name) in alias_names), None)
-            is_private = category_key == "category_team_id"
-            category_overwrites = dict(team_overwrites) if is_private else {
-                guild.default_role: discord.PermissionOverwrite(view_channel=True)
-            }
+            access_mode = category_access_mode(category_key)
+            is_private = access_mode == "staff"
+            if access_mode == "staff":
+                category_overwrites = dict(team_overwrites)
+            elif access_mode == "entry":
+                category_overwrites = dict(entry_overwrites)
+            else:
+                # Fail closed: @everyone não vê áreas comuns; só o cargo Membro
+                # concedido pelo botão de verificação e a equipe autorizada podem ver.
+                category_overwrites = dict(verified_overwrites)
             if category is None:
                 try:
                     category = await guild.create_category(
@@ -893,7 +1024,7 @@ class Admin(commands.Cog):
         # Publica/atualiza os dois painéis persistentes nas posições definidas pelo plano.
         panels_published = []
         panel_specs = (
-            ("📜・boas-vindas", "Cargos", "publish_welcome_panel", "painel de boas-vindas"),
+            ("✅・verificação", "Cargos", "publish_welcome_panel", "painel de verificação"),
             ("🎭・escolha-seus-cargos", "Cargos", "publish_organization_panel", "painel de escolha de cargos"),
             ("⚔️・painel-de-clãs", "Clans", "publish_organization_panel", "painel Salão dos Juramentos"),
         )
@@ -981,6 +1112,53 @@ class Admin(commands.Cog):
             role = guild.get_role(int(value)) if value else None
             if value and role is None:
                 lines.append(f"🔴 {label}: cargo `{value}` não existe.")
+        # Verify the role hierarchy against Discord's hard boundary: the bot can only
+        # manage roles strictly below its own highest role.
+        if me:
+            staff_roles = []
+            for role_key in STAFF_ROLE_ORDER:
+                role_id = await get_setting(self.bot, guild.id, f"role_{role_key}_id", 0)
+                role = guild.get_role(int(role_id)) if role_id else None
+                if role is None:
+                    mapped_key = ROLE_SETTING_KEYS.get(role_key)
+                    mapped_id = await get_setting(self.bot, guild.id, mapped_key, 0) if mapped_key else 0
+                    role = guild.get_role(int(mapped_id)) if mapped_id else None
+                staff_roles.append(role)
+            missing_staff = [key for key, role in zip(STAFF_ROLE_ORDER, staff_roles) if role is None]
+            if missing_staff:
+                lines.append("🟠 Hierarquia: cargos de equipe não configurados — " + ", ".join(missing_staff) + ".")
+            elif any(role.position <= me.top_role.position for role in staff_roles):
+                lines.append(
+                    "🟠 Hierarquia: mova Fundador, Administrador, Moderador, Equipe de Suporte e Desenvolvedor "
+                    "para acima do cargo do bot; não atribua cargos privilegiados antes disso."
+                )
+            elif any(staff_roles[i].position <= staff_roles[i + 1].position for i in range(len(staff_roles) - 1)):
+                lines.append("🟠 Hierarquia: os cargos de equipe estão acima do bot, mas fora da ordem recomendada.")
+
+            mispositioned = []
+            managed_positions = []
+            for role_key in managed_role_hierarchy_keys():
+                role_id = await get_setting(self.bot, guild.id, f"role_{role_key}_id", 0)
+                role = guild.get_role(int(role_id)) if role_id else None
+                if role and not role.managed:
+                    if role.position >= me.top_role.position:
+                        mispositioned.append(role.name)
+                    else:
+                        managed_positions.append(role)
+            if mispositioned:
+                lines.append(
+                    "🔴 Hierarquia: cargos funcionais precisam ficar abaixo do cargo do bot — "
+                    + ", ".join(mispositioned[:8]) + ("…" if len(mispositioned) > 8 else "") + "."
+                )
+            elif any(
+                managed_positions[index].position <= managed_positions[index + 1].position
+                for index in range(len(managed_positions) - 1)
+            ):
+                lines.append(
+                    "🟠 Hierarquia: os cargos funcionais estão abaixo do bot, mas fora da ordem esperada. "
+                    "Execute /adm → Organização do servidor para reorganizar patentes, clãs, comunidade e interesses."
+                )
+
         degraded = await self.bot.db._all("SELECT id,name,category_id,chat_channel_id,announcements_id,strategies_id,voice_channel_id FROM clans WHERE guild_id=? AND status IN ('degraded','active')", (guild.id,))
         for clan in degraded:
             missing_fields = [key for key in ("category_id", "chat_channel_id", "announcements_id", "strategies_id", "voice_channel_id") if not clan[key] or not guild.get_channel(int(clan[key]))]

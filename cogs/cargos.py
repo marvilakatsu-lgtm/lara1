@@ -168,10 +168,12 @@ class Cargos(commands.Cog):
     async def publish_welcome_panel(self, guild: discord.Guild, channel: discord.TextChannel):
         """Publica/atualiza o painel de boas-vindas e sincroniza o cargo Membro."""
         content = (
-            "# 📜 Boas-vindas ao Quase Pro\n\n"
-            "Leia `📕・regras-do-reino` e use o botão abaixo para confirmar que deseja participar da comunidade.\n"
-            "Ao confirmar, você recebe o cargo **Membro** e o cargo **Recém-chegado** é removido.\n\n"
-            "-# Esta confirmação não oculta canais por si só; o acesso efetivo depende das permissões configuradas no servidor."
+            "# ✅ Verificação do Quase Pro\n\n"
+            "1. Leia `📕・regras-do-reino`.\n"
+            "2. Clique em **Verificar-me** para confirmar sua entrada.\n"
+            "3. Você receberá o cargo **🟢 Membro**, que libera o acesso às categorias da comunidade.\n\n"
+            "Os canais de entrada permanecem visíveis para que todos possam ler as regras e concluir a verificação. "
+            "As demais categorias ficam ocultas até a atribuição do cargo de membro verificado."
         )
         return await upsert_panel(
             self.bot, channel, f"panel:verification:{guild.id}:{channel.id}",

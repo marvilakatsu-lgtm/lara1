@@ -47,6 +47,8 @@ class YouTube(commands.Cog):
         self.latest_video_id: str | None = None
         self.current_live_video_id: str | None = None
         self.live_state_initialized = False
+        self._next_rss_warning_at = 0.0
+        self._api_fallback_warning_logged = False
 
     async def cog_load(self):
         self.http_session = aiohttp.ClientSession(headers={"User-Agent": "oQuaseproYouTubeNotifications/1.0"})
@@ -67,7 +69,20 @@ class YouTube(commands.Cog):
         return await self._latest_via_api()
 
     async def _latest_via_api(self) -> dict[str, str] | None:
-        if not self.http_session or not YOUTUBE_API_KEY or not YOUTUBE_CHANNEL_ID.startswith("UC"):
+        if not self.http_session:
+            return None
+        if not YOUTUBE_CHANNEL_ID.startswith("UC") or len(YOUTUBE_CHANNEL_ID) != 24:
+            log.error(
+                "YOUTUBE_CHANNEL_ID parece inválido (%r). Use o ID de canal do YouTube de 24 caracteres começando com UC; não use @handle ou URL.",
+                YOUTUBE_CHANNEL_ID,
+            )
+            return None
+        if not YOUTUBE_API_KEY:
+            if not self._api_fallback_warning_logged:
+                log.warning(
+                    "O feed RSS falhou e YOUTUBE_API_KEY não está configurada; o bot não consegue consultar o último vídeo por fallback. Confira também se YOUTUBE_CHANNEL_ID é o ID correto do canal."
+                )
+                self._api_fallback_warning_logged = True
             return None
         params = {
             "part": "snippet",
@@ -137,7 +152,15 @@ class YouTube(commands.Cog):
                 "url": url or f"https://www.youtube.com/watch?v={video_id}",
             }
         except aiohttp.ClientResponseError as e:
-            log.warning("Feed RSS do YouTube recusou (HTTP %s). Tentando pela API.", e.status)
+            # O endpoint de feeds do YouTube pode falhar temporariamente com 404.
+            # Limita o log para não inundar a hospedagem se o loop consultar a cada 2 min.
+            now = asyncio.get_running_loop().time()
+            if now >= self._next_rss_warning_at:
+                log.warning(
+                    "Feed de vídeos do YouTube retornou HTTP %s. Pode ser indisponibilidade temporária do RSS ou YOUTUBE_CHANNEL_ID incorreto; tentando a API quando configurada.",
+                    e.status,
+                )
+                self._next_rss_warning_at = now + 900
             return None
         except (aiohttp.ClientError, asyncio.TimeoutError, ET.ParseError):
             log.warning("Falha ao consultar o feed RSS do YouTube. Tentando pela API.")
