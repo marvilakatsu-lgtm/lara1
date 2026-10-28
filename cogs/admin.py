@@ -1,6 +1,7 @@
 """Painel /adm: configuração por servidor, auditoria, diagnóstico e organização segura."""
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import tempfile
@@ -13,6 +14,8 @@ from discord.ext import commands
 
 import config
 from settings_store import audit, get_setting, module_enabled, set_module_enabled, set_setting
+
+log = logging.getLogger("quasepro.admin")
 
 CHANNELS = {
     "mod_channel_id": ("Canal de moderação/aprovações", getattr(config, "MOD_CHANNEL_ID", 0), "text"),
@@ -327,7 +330,18 @@ class ConfirmOrganizationView(AdminBaseView):
     @discord.ui.button(label="Confirmar aplicação", style=discord.ButtonStyle.danger, emoji="✅")
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.defer(ephemeral=True, thinking=True)
-        results = await self.cog.apply_organization(interaction.guild, interaction.user.id)
+        try:
+            results = await self.cog.apply_organization(interaction.guild, interaction.user.id)
+        except Exception:
+            log.exception(
+                "Falha inesperada ao aplicar organização no servidor %s (usuário %s).",
+                self.guild_id,
+                interaction.user.id,
+            )
+            results = (
+                "Ocorreu uma falha inesperada durante a aplicação. A operação pode ter sido parcial; "
+                "nenhum recurso existente foi excluído. Consulte os logs da aplicação antes de tentar novamente."
+            )
         await interaction.followup.send(results, ephemeral=True)
         try:
             await interaction.message.edit(content="Plano processado. Consulte a resposta privada para o resultado detalhado.", embed=None, view=None)
@@ -578,8 +592,15 @@ class Admin(commands.Cog):
             category = discord.utils.get(guild.categories, name=category_name)
             if not category:
                 try:
-                    overwrites = team_overwrites if category_key == "category_team_id" else None
-                    category = await guild.create_category(category_name, overwrites=overwrites, reason="Quase Pro /adm: estrutura aprovada")
+                    # discord.py espera um dict explícito; passar None causa TypeError.
+                    # As categorias públicas usam um mapa vazio (permissões herdadas padrão),
+                    # enquanto a categoria da equipe recebe as sobrescritas restritivas.
+                    overwrites = team_overwrites if category_key == "category_team_id" else {}
+                    category = await guild.create_category(
+                        category_name,
+                        overwrites=overwrites,
+                        reason="Quase Pro /adm: estrutura aprovada",
+                    )
                     created_categories.append(category_name)
                 except (discord.Forbidden, discord.HTTPException) as exc:
                     errors.append(f"Categoria {category_name}: {type(exc).__name__}")
