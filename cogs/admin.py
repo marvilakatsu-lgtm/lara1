@@ -1409,6 +1409,7 @@ class Admin(commands.Cog):
             return (int(item.id), str(item.name))
 
         payload = {
+            "legacy_settings_to_remove": sorted((str(key), int(value), str(role_name)) for key, value, role_name in plan.get("legacy_settings_to_remove", [])),
             "channels": sorted(channel_record(item) for item in plan["channels"]),
             "categories": sorted(category_record(item) for item in plan["categories"]),
             "roles": sorted(candidate_role_record(item) for item in plan["roles"]),
@@ -1568,6 +1569,11 @@ class Admin(commands.Cog):
         channel_ids = {item.id for item in candidate_channels}
         category_ids = {item.id for item in candidate_categories}
         role_ids = {item.id for item in candidate_roles}
+        # Esses dois mapeamentos pertenciam aos dois bots antes da integração. O projeto
+        # integrado usa uma única identidade Discord; nenhuma rotina atual consome essas
+        # chaves. Elas podem ser removidas de forma auditada junto da limpeza dos cargos.
+        obsolete_bot_role_keys = {"role_bot_catalog_id", "role_bot_soulsbot_id"}
+        legacy_settings_to_remove: list[tuple[str, int, str]] = []
         try:
             settings_rows = await self.bot.db._all(
                 "SELECT key,value FROM guild_settings WHERE guild_id=?", (int(guild.id),),
@@ -1583,7 +1589,10 @@ class Admin(commands.Cog):
                     blockers.append(f"{getattr(item, 'name', ref_id)} ainda está associado à configuração `{key}`; reaplique/corrija as associações antes de excluir.")
                 if (key.endswith("_role_id") or (key.startswith("role_") and key.endswith("_id"))) and ref_id in role_ids:
                     item = guild.get_role(ref_id)
-                    blockers.append(f"O cargo {getattr(item, 'name', ref_id)} ainda está associado à configuração `{key}`; corrija a associação antes de excluir.")
+                    if key in obsolete_bot_role_keys and item is not None and item.name in {"Bot Catálogo", "Soulsbot"}:
+                        legacy_settings_to_remove.append((key, ref_id, item.name))
+                    else:
+                        blockers.append(f"O cargo {getattr(item, 'name', ref_id)} ainda está associado à configuração `{key}`; corrija a associação antes de excluir.")
         except Exception:
             log.exception("Não foi possível validar referências de configuração antes da limpeza no servidor %s", guild.id)
             blockers.append("Não foi possível verificar todas as referências persistentes; limpeza bloqueada por segurança.")
@@ -1597,6 +1606,7 @@ class Admin(commands.Cog):
             "target_categories": target_categories,
             "target_channels": target_channels,
             "target_roles": target_roles,
+            "legacy_settings_to_remove": legacy_settings_to_remove,
             "protected_clan_category_ids": protected_clan_category_ids,
             "protected_clan_channel_ids": protected_clan_channel_ids,
         }
@@ -1637,6 +1647,12 @@ class Admin(commands.Cog):
         if plan["skipped_roles"]:
             embed.add_field(name="Cargos preservados/limitação do Discord", value=format_lines(
                 plan["skipped_roles"], lambda pair: f"• {pair[0].name}: {pair[1]}"), inline=False)
+        if plan.get("legacy_settings_to_remove"):
+            embed.add_field(
+                name="Configurações antigas que serão migradas",
+                value=format_lines(plan["legacy_settings_to_remove"], lambda item: f"• `{item[0]}` → cargo {item[2]} (referência obsoleta da arquitetura de dois bots)"),
+                inline=False,
+            )
         if plan["blockers"]:
             embed.add_field(name="IMPEDIMENTOS — nada pode ser apagado", value="\n".join(
                 f"• {item}" for item in plan["blockers"][:8])[:1024], inline=False)
@@ -1707,6 +1723,10 @@ class Admin(commands.Cog):
                 "generated_at": datetime.now(timezone.utc).isoformat(),
                 "guild_id": guild.id, "guild_name": guild.name,
                 "warning": "Metadata-only Discord snapshot. It cannot restore deleted Discord messages, threads, or attachments.",
+                "legacy_settings_to_remove": [
+                    {"key": key, "role_id": role_id, "role_name": role_name}
+                    for key, role_id, role_name in plan.get("legacy_settings_to_remove", [])
+                ],
                 "planned_deletion": {
                     "channels": [{"id": item.id, "name": item.name, "category_id": getattr(item, "category_id", None)} for item in plan["channels"]],
                     "categories": [{"id": item.id, "name": item.name} for item in plan["categories"]],
@@ -1751,6 +1771,23 @@ class Admin(commands.Cog):
 
         channel_deleted = category_deleted = role_deleted = 0
         failures: list[str] = []
+        # Retira apenas os mapeamentos legados conhecidos, já listados na prévia e no
+        # manifesto de backup. Outros vínculos de cargos continuam sendo impedimentos.
+        for key, role_id, role_name in fresh.get("legacy_settings_to_remove", []):
+            try:
+                await self.bot.db.conn.execute(
+                    "DELETE FROM guild_settings WHERE guild_id=? AND key=? AND value=?",
+                    (int(guild.id), str(key), str(role_id)),
+                )
+                await self.bot.db.conn.execute(
+                    "INSERT INTO admin_audit(guild_id,actor_id,action,entity,before_val,after_val,result) VALUES(?,?,?,?,?,?,?)",
+                    (int(guild.id), int(actor_id), "legacy_role_setting_removed_for_cleanup", str(key),
+                     f"{role_name}:{role_id}", None, "success"),
+                )
+                await self.bot.db.conn.commit()
+            except Exception as exc:
+                await self.bot.db.conn.rollback()
+                raise RuntimeError(f"Não foi possível migrar a configuração legada {key}; nenhuma exclusão de recursos começou.") from exc
         await audit(
             self.bot, guild.id, actor_id, "destructive_cleanup_started", "server-resources",
             before=(f"channels={len(plan['channels'])};categories={len(plan['categories'])};roles={len(plan['roles'])}"),
