@@ -20,6 +20,7 @@ log = logging.getLogger("quasepro.admin")
 from server_structure import (
     CATEGORY_KEYS,
     CHANNEL_SETTINGS_LABELS,
+    LEGACY_CATEGORY_NAMES,
     ORGANIZATION,
     ROLE_DEFINITIONS,
     ROLE_SETTING_KEYS,
@@ -27,6 +28,7 @@ from server_structure import (
     category_access_mode,
     count_channels,
     managed_role_hierarchy_keys,
+    legacy_channel_names,
     normalize_name,
     validate_role_palette,
 )
@@ -318,9 +320,10 @@ class OrganizationPreviewView(AdminBaseView):
     @discord.ui.button(label="Aplicar estrutura e cargos", style=discord.ButtonStyle.success, emoji="🧰", row=0)
     async def apply_plan(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content=(
-            "A aplicação vai criar/renomear categorias e canais para a estrutura Quase Pro, mover canais existentes preservando o histórico, "
-            "criar/ajustar os 34 cargos com cores distintas, ordenar patentes do nível mais alto ao mais baixo e vincular patentes aos níveis já existentes. "
-            "Nenhum canal, mensagem ou dado será excluído. As permissões da categoria privada da equipe serão normalizadas. "
+            "A aplicação vai criar/renomear categorias e canais para a estrutura comunitária simplificada, combinar destinos de feeds relacionados e preservar os IDs operacionais. "
+            f"Vai criar/ajustar {len(ROLE_DEFINITIONS)} cargos com cores distintas e manter a progressão de XP existente. "
+            "Canais redundantes e categorias antigas serão movidos/ocultados em 🗄️・ARQUIVO ANTIGO privado para preservar mensagens; nada será excluído. "
+            "As permissões da equipe e o bloqueio de acesso até a verificação serão normalizados. "
             "Importante: o Discord exige que os cargos da equipe fiquem manualmente acima do cargo real do bot; o bot organizará os cargos funcionais abaixo dele. Confirma?"), embed=None,
             view=ConfirmOrganizationView(self.cog, self.guild_id))
 
@@ -507,9 +510,8 @@ class Admin(commands.Cog):
             embed = discord.Embed(
                 title="Organização Quase Pro · Pré-visualização",
                 description=(
-                    f"Estrutura definida conforme o plano do servidor: 10 categorias e {count_channels()} canais. "
-                    "A aplicação reaproveita canais equivalentes e preserva mensagens, renomeando/movendo quando necessário. "
-                    "Não exclui canais, mensagens, cargos nem dados."
+                    f"Estrutura comunitária simplificada: {len(ORGANIZATION)} categorias e {count_channels()} canais. "
+                    "A aplicação reaproveita canais equivalentes e preserva mensagens. Canais redundantes são movidos para 🗄️・ARQUIVO ANTIGO, visível apenas à equipe; nada é excluído."
                 ),
                 color=0xD4AF37,
             )
@@ -520,7 +522,7 @@ class Admin(commands.Cog):
             embed.add_field(
                 name="Cargos e progressão",
                 value=(f"{len(ROLE_DEFINITIONS)} cargos padronizados com cores únicas. "
-                       "A hierarquia das patentes vai da maior para a menor; os requisitos do Soulsbot são preservados: níveis "
+                       "A hierarquia das patentes vai da maior para a menor; os requisitos originais de XP do Soulsbot são preservados: níveis "
                        + ", ".join(str(minimo) for minimo, _nome in __import__('levels').PATENTES)
                        + ". Nenhum XP, nível ou recompensa será recalculado."),
                 inline=False,
@@ -528,7 +530,7 @@ class Admin(commands.Cog):
             embed.add_field(
                 name="Permissões",
                 value="Portões, comunidade, Soulslike e catálogo seguem a política de verificação. BASTIDORES DA ORDEM permanece privado. "
-                      "Para hierarquia segura, mantenha Fundador > Administrador > Moderador > Suporte > Desenvolvedor acima do cargo real do bot; patentes, clãs, comunidade e interesses ficam abaixo do bot.",
+                      "Para hierarquia segura, mantenha Fundador > Administrador > Moderador > Suporte > Desenvolvedor acima do cargo real do bot; patentes, clãs, comunidade e cargos de interesse ficam abaixo do bot.",
                 inline=False,
             )
             return embed, OrganizationPreviewView(self, guild.id)
@@ -824,6 +826,7 @@ class Admin(commands.Cog):
 
     async def apply_organization(self, guild: discord.Guild, actor_id: int) -> str:
         created_categories, renamed_categories, created_channels, changed_channels = [], [], [], []
+        archived_categories, archived_channels = [], []
         errors = []
         me = guild.me or guild.get_member(self.bot.user.id if self.bot.user else 0)
         if not me or not me.guild_permissions.manage_channels:
@@ -848,11 +851,15 @@ class Admin(commands.Cog):
             guild.default_role: discord.PermissionOverwrite(view_channel=False),
             me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
         }
+        # Todo o grupo de equipe compartilha a área privada; permissões administrativas
+        # continuam sendo definidas pelo perfil real de cada cargo, não pela categoria.
         core_role_ids = {
             int(admin_role_id or 0), int(mod_role_id or 0),
             roles.get("founder").id if roles.get("founder") else 0,
             roles.get("administrator").id if roles.get("administrator") else 0,
             roles.get("moderator").id if roles.get("moderator") else 0,
+            roles.get("support").id if roles.get("support") else 0,
+            roles.get("developer").id if roles.get("developer") else 0,
         }
         for rid in core_role_ids:
             role = guild.get_role(rid) if rid else None
@@ -884,12 +891,23 @@ class Admin(commands.Cog):
                 view_channel=True, send_messages=True, read_message_history=True,
             )
 
+        # A categoria de entrada é visível a novos membros, mas somente o bot publica
+        # mensagens. O botão de verificação continua funcionando sem exigir que o membro
+        # tenha permissão de escrever no canal.
         entry_overwrites = {
-            guild.default_role: discord.PermissionOverwrite(view_channel=True),
-            me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True),
+            guild.default_role: discord.PermissionOverwrite(
+                view_channel=True, send_messages=False, add_reactions=False,
+                create_public_threads=False, create_private_threads=False,
+                send_messages_in_threads=False,
+            ),
+            me: discord.PermissionOverwrite(
+                view_channel=True, send_messages=True, read_message_history=True,
+                embed_links=True, attach_files=True,
+            ),
         }
 
         used_channel_ids = set()
+        active_category_ids = set()
         for position, (category_name, category_key, aliases, channel_defs) in enumerate(self.organization_plan()):
             category = discord.utils.get(guild.categories, name=category_name)
             if category is None:
@@ -931,6 +949,7 @@ class Admin(commands.Cog):
                     errors.append(f"Categoria {category_name}: {type(exc).__name__}")
                     # Não cria uma segunda categoria se a existente não puder ser ajustada.
                     continue
+            active_category_ids.add(category.id)
             current_category_id = await get_setting(self.bot, guild.id, category_key, 0)
             if int(current_category_id or 0) != category.id:
                 await set_setting(self.bot, guild.id, actor_id, category_key, category.id)
@@ -990,10 +1009,81 @@ class Admin(commands.Cog):
                         errors.append(f"Canal {category_name}/{channel_name}: {type(exc).__name__}")
                         continue
                 used_channel_ids.add(channel.id)
-                if setting_key:
-                    current = await get_setting(self.bot, guild.id, setting_key, 0)
+                setting_keys = (setting_key,) if isinstance(setting_key, str) else tuple(setting_key or ())
+                for config_key in setting_keys:
+                    current = await get_setting(self.bot, guild.id, config_key, 0)
                     if int(current or 0) != channel.id:
-                        await set_setting(self.bot, guild.id, actor_id, setting_key, channel.id)
+                        await set_setting(self.bot, guild.id, actor_id, config_key, channel.id)
+
+        # Arquiva recursos conhecidos que foram consolidados no plano simplificado.
+        # Nada é apagado: canais, mensagens e histórico permanecem disponíveis à equipe.
+        try:
+            old_channel_names = legacy_channel_names()
+            candidates = []
+            legacy_categories = [
+                category for category in guild.categories
+                if category.id not in active_category_ids
+                and normalize_name(category.name) in LEGACY_CATEGORY_NAMES
+            ]
+            candidate_ids = set()
+            for category in legacy_categories:
+                for channel in list(category.channels):
+                    if channel.id not in used_channel_ids and channel.id not in candidate_ids:
+                        candidates.append(channel)
+                        candidate_ids.add(channel.id)
+            for channel in list(guild.channels):
+                if channel.id in used_channel_ids or channel.id in candidate_ids:
+                    continue
+                if (getattr(channel, "category_id", None) in active_category_ids
+                        and normalize_name(channel.name) in old_channel_names):
+                    candidates.append(channel)
+                    candidate_ids.add(channel.id)
+
+            archive_overwrites = {
+                guild.default_role: discord.PermissionOverwrite(view_channel=False),
+                me: discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True, manage_channels=True),
+            }
+            for role_id in core_role_ids:
+                role = guild.get_role(role_id) if role_id else None
+                if role is not None:
+                    archive_overwrites[role] = discord.PermissionOverwrite(view_channel=True, send_messages=True, read_message_history=True)
+
+            archive = discord.utils.get(guild.categories, name="🗄️・ARQUIVO ANTIGO")
+            if candidates:
+                if archive is None:
+                    archive = await guild.create_category(
+                        "🗄️・ARQUIVO ANTIGO", overwrites=archive_overwrites,
+                        reason="Quase Pro /adm: arquivamento não destrutivo de canais consolidados",
+                    )
+                else:
+                    await archive.edit(overwrites=archive_overwrites, reason="Quase Pro /adm: proteger arquivo legado")
+                for channel in candidates:
+                    if getattr(channel, "category_id", None) == archive.id:
+                        continue
+                    try:
+                        await channel.edit(
+                            category=archive, overwrites=archive_overwrites,
+                            reason="Quase Pro /adm: preservar histórico de canal consolidado",
+                        )
+                        archived_channels.append(channel.name)
+                    except (discord.Forbidden, discord.HTTPException) as exc:
+                        errors.append(f"Não foi possível arquivar {channel.name}: {type(exc).__name__}")
+
+            # Mesmo quando uma categoria antiga já ficou vazia, esconda/renomeie-a para
+            # que ela não continue poluindo a navegação pública.
+            for category in legacy_categories:
+                try:
+                    new_legacy_name = f"🗄️・ANTIGA {category.name}"[:100]
+                    await category.edit(name=new_legacy_name, overwrites=archive_overwrites,
+                                        reason="Quase Pro /adm: ocultar categoria antiga sem excluir histórico")
+                    archived_categories.append(new_legacy_name)
+                except (discord.Forbidden, discord.HTTPException) as exc:
+                    errors.append(f"Não foi possível proteger categoria antiga {category.name}: {type(exc).__name__}")
+        except (discord.Forbidden, discord.HTTPException) as exc:
+            errors.append(f"Falha ao arquivar canais consolidados: {type(exc).__name__}")
+        except Exception as exc:
+            log.exception("Falha ao arquivar recursos antigos do servidor %s", guild.id)
+            errors.append(f"Falha ao arquivar recursos antigos: {type(exc).__name__}")
 
         # Confere e reconcilia patentes dos membros com XP existente. Os limiares vêm de levels.PATENTES.
         rank_updates = 0
@@ -1025,8 +1115,8 @@ class Admin(commands.Cog):
         panels_published = []
         panel_specs = (
             ("✅・verificação", "Cargos", "publish_welcome_panel", "painel de verificação"),
-            ("🎭・escolha-seus-cargos", "Cargos", "publish_organization_panel", "painel de escolha de cargos"),
-            ("⚔️・painel-de-clãs", "Clans", "publish_organization_panel", "painel Salão dos Juramentos"),
+            ("🎭・cargos-de-interesse", "Cargos", "publish_organization_panel", "painel de cargos de interesse"),
+            ("🛡️・clãs", "Clans", "publish_organization_panel", "painel Salão dos Juramentos"),
         )
         for channel_name, cog_name, method_name, description in panel_specs:
             channel = next((c for c in guild.text_channels if c.name == channel_name), None)
@@ -1069,7 +1159,8 @@ class Admin(commands.Cog):
             "**Estrutura Quase Pro processada.**",
             f"Categorias criadas: **{len(created_categories)}** · renomeadas: **{len(renamed_categories)}**.",
             f"Canais criados: **{len(created_channels)}** · renomeados/movidos: **{len(changed_channels)}**.",
-            f"Cargos criados: **{roles_created}** · ajustados: **{roles_updated}** · cores únicas definidas: **{len(ROLE_DEFINITIONS)}**.",
+            f"Canais antigos arquivados sem exclusão: **{len(archived_channels)}** · categorias antigas protegidas: **{len(archived_categories)}**.",
+            f"Cargos criados: **{roles_created}** · ajustados: **{roles_updated}** · cargos funcionais padronizados: **{len(ROLE_DEFINITIONS)}**.",
             ("Painéis: " + "; ".join(panels_published) + ".") if panels_published else "Painéis persistentes: nenhum foi publicado.",
             f"Membros com patente sincronizada a partir do XP existente: **{rank_updates}**.",
             "Nenhum canal, mensagem ou banco de dados foi excluído.",
@@ -1156,7 +1247,7 @@ class Admin(commands.Cog):
             ):
                 lines.append(
                     "🟠 Hierarquia: os cargos funcionais estão abaixo do bot, mas fora da ordem esperada. "
-                    "Execute /adm → Organização do servidor para reorganizar patentes, clãs, comunidade e interesses."
+                    "Execute /adm → Organização do servidor para reorganizar patentes, cargos de clã, comunidade e interesses."
                 )
 
         degraded = await self.bot.db._all("SELECT id,name,category_id,chat_channel_id,announcements_id,strategies_id,voice_channel_id FROM clans WHERE guild_id=? AND status IN ('degraded','active')", (guild.id,))

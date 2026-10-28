@@ -1710,7 +1710,10 @@ async def publish_organization_panels(guild: discord.Guild):
     else:
         raise ValueError("Canal do catálogo de mods não configurado ou inválido no /adm.")
 
-    submit_channel = next((c for c in guild.text_channels if c.name == "📥・envio-de-mods"), None)
+    # O projeto simplificado concentra jogos, mods e submissões no mesmo canal.
+    # O painel de envio continua sendo uma mensagem separada e persistente, sem exigir
+    # um canal adicional apenas para o botão de submissão.
+    submit_channel = mods_channel if isinstance(mods_channel, discord.TextChannel) else None
     if submit_channel is not None:
         _message, created = await upsert_panel(
             bot, submit_channel, f"panel:mods-submit:{guild.id}:{submit_channel.id}",
