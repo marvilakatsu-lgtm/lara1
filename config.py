@@ -58,7 +58,8 @@ def _env_bool(nome: str, padrao: bool) -> bool:
     return os.getenv(nome, str(padrao)).strip().lower() in ("1", "true", "sim", "yes")
 
 
-TOKEN = os.getenv("DISCORD_TOKEN", "").strip()
+# TOKEN já foi definido na linha 18; normalizamos o valor existente sem redeclarar.
+TOKEN = (TOKEN or "").strip()
 YOUTUBE_API_KEY = os.getenv("YOUTUBE_API_KEY", "").strip()
 YOUTUBE_CHANNEL_ID = os.getenv(
     "YOUTUBE_CHANNEL_ID", "UCBuR1KPa9g9yYilBiy_7iqw"

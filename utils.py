@@ -24,7 +24,7 @@ async def erro_comando(interaction: discord.Interaction, error):
         msg = "Você precisa da permissão **Gerenciar servidor** para usar esse comando."
     else:
         log.error("Erro em comando", exc_info=error)
-        msg = "Ocorreu um erro. Confira os logs da FadeHost."
+        msg = "Ocorreu um erro. Confira os logs do bot."
     if interaction.response.is_done():
         await interaction.followup.send(msg, ephemeral=True)
     else:
