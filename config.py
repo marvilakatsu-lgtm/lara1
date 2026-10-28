@@ -85,10 +85,19 @@ LIVE_END_HOUR = int(os.getenv("LIVE_END_HOUR", "24"))  # exclusivo: 19:00 até 2
 
 OFFERS_CHECK_MINUTES = max(10, int(os.getenv("OFFERS_CHECK_MINUTES", "30")))
 MAX_OFFERS_PER_CHECK = max(1, int(os.getenv("MAX_OFFERS_PER_CHECK", "8")))
-# Só avisa promoções da Steam com pelo menos esse desconto (0 = todas)
-MIN_PROMO_DISCOUNT = max(0, int(os.getenv("MIN_PROMO_DISCOUNT", "50")))
+# Desconto mínimo para publicar promoções (0 = todas). Jogos grátis são sempre publicados.
+MIN_PROMO_DISCOUNT = max(0, int(os.getenv("MIN_PROMO_DISCOUNT", "20")))
 # Na primeira execução, registra as ofertas que já existem sem postar (evita inundar o canal)
 SEED_OFFERS_ON_FIRST_RUN = _env_bool("SEED_OFFERS_ON_FIRST_RUN", True)
+
+# Fontes de ofertas habilitadas por padrão (separadas por vírgula no .env)
+# Opções válidas: Steam, GamerPower, Epic Games Store, GOG
+_DEFAULT_OFFER_SOURCES = "Steam,GamerPower,Epic Games Store,GOG"
+OFFERS_ENABLED_SOURCES = {
+    s.strip()
+    for s in os.getenv("OFFERS_ENABLED_SOURCES", _DEFAULT_OFFER_SOURCES).split(",")
+    if s.strip()
+}
 
 DATA_DIR = Path(os.getenv("DATA_DIR", "/data" if Path("/data").is_dir() else "data"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
