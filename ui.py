@@ -8,21 +8,11 @@ import datetime as dt
 
 import config
 from levels import PATENTES, SIMBOLOS_PATENTES, nivel_por_xp, patente_por_nivel
+from server_structure import RANK_ROLE_COLORS
 
 # Cor de destaque por patente: quanto mais alta a patente, mais "nobre" o tom.
 # Isso diferencia novatos, ativos e veteranos sem precisar de texto extra.
-COR_PATENTE = {
-    "Cinzas Novatas": 0x7A736B,
-    "Guerreiro Caído": 0x8C6D4F,
-    "Caçador de Almas": 0x5F7F8C,
-    "Cavaleiro do Abismo": 0x3F6FA8,
-    "Guardião das Cinzas": 0x5E5A8C,
-    "Arauto da Ruína": 0x8B2E3C,
-    "Executor Sombrio": 0x6D1F2B,
-    "Senhor das Almas": 0xB8862B,
-    "Lenda do Coliseu": 0xD4AF37,
-    "Sentinela Imortal": 0xF1D77A,
-}
+COR_PATENTE = dict(RANK_ROLE_COLORS)
 
 LINHA = "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
 MARCA = "⚔️ Colizeu"

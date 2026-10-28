@@ -48,7 +48,9 @@ O ZIP do catálogo também não continha `jogos.db` nem as pastas de dados/image
 - Associações administrativas para destinos de canais, categorias e cargos por seletores do Discord.
 - Migração inicial de IDs antigos válidos, sem substituir valores mais recentes do painel.
 - `/adm` efêmero e paginado com visão geral, configuração, organização, módulos, catálogo, YouTube/ofertas, progressão, clãs, diagnóstico, histórico, backup e ajuda.
-- Organizador com prévia/confirmacão que cria apenas categorias/canais ausentes; não renomeia, move ou exclui recursos existentes.
+- Organizador com prévia/confirmacão para a estrutura específica Quase Pro: 10 categorias, 62 canais e 34 cargos. Reutiliza canais por nome/alias, renomeia e move para a nova ordem, padroniza cores/permissões dos cargos e normaliza a privacidade das categorias; não exclui canais ou mensagens.
+- Painéis persistentes automáticos para boas-vindas/verificação, escolha de cargos, catálogo de jogos, catálogo/envio de mods e Salão dos Juramentos, reutilizados por ID ou custom_id para reduzir duplicatas.
+- Sincronização do cargo de patente pelo XP/nível atual e publicação do painel de self-roles para 6 jogos e 3 avisos/eventos.
 - Geração de backup ZIP com snapshots SQLite dos bancos existentes nos caminhos configurados, além de snapshot pré-migração automático do banco principal quando uma versão de schema mais recente será aplicada.
 - Sistema de clãs com exclusividade por usuário/servidor, regra de no máximo dez integrantes, convites, candidaturas, funções internas, transferências/encerramento com confirmação, atividades, estatísticas básicas, categorias/canais privados, auditoria, diagnóstico e tentativa de reparo.
 - Configuração do destino do painel público “Salão dos Juramentos” e modo de recrutamento padrão.
@@ -70,7 +72,9 @@ O ZIP do catálogo também não continha `jogos.db` nem as pastas de dados/image
 
 ### Administração e organização do servidor
 
-- O organizador **não** modifica nomes, movimenta, consolida ou exclui canais/cargos existentes. Ele cria recursos ausentes apenas. Isso reduz risco de perda de histórico e referências quebradas, mas não satisfaz integralmente uma reconstrução destrutiva e automatizada da estrutura.
+- O organizador renomeia e move canais que correspondem por nome/alias e atualiza overwrites das 10 categorias. Não exclui canais, mensagens ou bancos. A alteração de permissões/categorias no Discord não possui rollback automático garantido, logo deve ser testada num servidor de homologação e pode falhar parcialmente se houver rate limits, permissões insuficientes ou hierarquia inadequada.
+- O plano cria/atualiza 34 cargos com paleta única. Cargos administrativos preexistentes configurados continuam associados para evitar bloquear a equipe; os cargos oficiais de comunidade/notificações passam para as definições padronizadas.
+- Como Soulsbot, catálogo e organizador estão carregados num único cliente Discord, os três cargos técnicos são etiquetas sem permissões, não três identidades de bot independentes.
 - Algumas opções de liga/desliga na tela `/adm` são informativas e ainda não desconectam todos os listeners/tarefas daquele módulo. O toggle funcional implementado é o de novas interações do Sistema de Clãs.
 - O painel cria backups, mas **não possui uma UI de restauração**. A restauração deve ser feita com o processo parado, preservando primeiro cópia do estado atual.
 - Diagnóstico informa problemas e oferece reparo de recursos dos clãs; não é um reparo automático universal de todos os módulos.
@@ -85,7 +89,7 @@ Nenhum dos dois ZIPs incluía o banco principal, `jogos.db`, imagens, capas ou b
 | Verificação | Resultado |
 |---|---|
 | `python -m compileall -q bot.py config.py database.py settings_store.py cogs tests` | Passou |
-| `python -m unittest discover -s tests -v` | 32 testes passaram |
+| `python -m unittest discover -s tests -v` | 39 testes passaram |
 | Isolamento das configurações por servidor | Coberto por teste unitário |
 | Migração versionada, adição de coluna legada e snapshot pré-migração | Coberto por teste unitário |
 | Limite máximo de dez integrantes / exclusividade de vínculo | Coberto por teste de SQLite e trigger |
@@ -104,3 +108,7 @@ As dependências `discord.py`, `aiosqlite` e `google-genai` não estavam instala
 7. No servidor de teste, validar aprovações, catálogo, notícias, notificações, criação de clã, convite/candidatura, limite de integrantes, permissões efetivas, saída, transferência e encerramento.
 8. Publicar o Salão dos Juramentos pelo `/adm` → Sistema de Clãs apenas após conferir a privacidade das categorias.
 9. Manter cópias externas dos backups. Não considerar rollback garantido para alterações feitas diretamente no servidor Discord.
+
+## Correções pós-entrega e versão da estrutura
+
+O fluxo de `/adm` não passa `None` a `guild.create_category(overwrites=...)`: categorias regulares recebem `{}`, e a categoria da equipe recebe seu mapa de permissões específico. O callback de confirmação registra falhas inesperadas e responde ao administrador de forma efêmera. A ordem dos campos da estrutura foi alinhada às rotinas de prévia/aplicação, e um teste impede regressão do schema. O catálogo publica nos canais configurados e o organizador cria/atualiza os painéis persistentes. Testes locais: 39 aprovados; a execução end-to-end com Discord permanece pendente de credenciais e instalação das dependências na hospedagem.

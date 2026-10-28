@@ -42,14 +42,15 @@ def barra_progresso(xp: int, tamanho: int = 10) -> str:
 
 # Símbolos visuais das patentes.
 SIMBOLOS_PATENTES = {
-    "Cinzas Novatas": "🔥",
-    "Guerreiro Caído": "⚔️",
-    "Caçador de Almas": "☠️",
-    "Cavaleiro do Abismo": "🛡️",
-    "Guardião das Cinzas": "🌑",
-    "Arauto da Ruína": "🔱",
-    "Executor Sombrio": "💀",
-    "Senhor das Almas": "👑",
+    # Os nomes e critérios de nível são preservados; os símbolos seguem a nova identidade do servidor.
+    "Cinzas Novatas": "🪨",
+    "Guerreiro Caído": "🩸",
+    "Caçador de Almas": "💀",
+    "Cavaleiro do Abismo": "⚔️",
+    "Guardião das Cinzas": "🪶",
+    "Arauto da Ruína": "🌑",
+    "Executor Sombrio": "🔥",
+    "Senhor das Almas": "🌌",
     "Lenda do Coliseu": "🏆",
     "Sentinela Imortal": "🌟",
 }
@@ -62,5 +63,12 @@ def nome_patente_exibicao(nome: str) -> str:
     return nome
 
 def eh_cargo_patente(nome: str) -> bool:
-    """Reconhece a patente tanto no nome antigo quanto no nome decorado."""
-    return any(nome == base or nome == nome_patente_exibicao(base) for base in SIMBOLOS_PATENTES)
+    """Reconhece cargos de patente antigos e novos, inclusive símbolos legados."""
+    nome = str(nome or "").strip()
+    for base in SIMBOLOS_PATENTES:
+        if nome == base or nome == nome_patente_exibicao(base):
+            return True
+        # Os cargos históricos tinham emojis diferentes antes da reformulação.
+        if nome.endswith(f"・{base}") or nome.endswith(f" {base}"):
+            return True
+    return False
